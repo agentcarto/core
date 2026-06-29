@@ -111,16 +111,22 @@ func TestExpandHome(t *testing.T) {
 }
 
 func TestProcessMatches(t *testing.T) {
+	// Use OS-native separators: ProcessMatches joins with filepath.Separator, so
+	// paths must look the way they do on the running platform.
+	src := filepath.FromSlash("/a/b")
+	child := filepath.Join(src, "c.json")
+	sibling := filepath.FromSlash("/a/bc")
+
 	s := domain.Session{SessionID: "sess-123"}
-	s.SourceRef.Source = "/a/b"
+	s.SourceRef.Source = src
 	cases := []struct {
 		name string
 		ps   []domain.Process
 		want bool
 	}{
-		{"exact open file", []domain.Process{{OpenFiles: []string{"/a/b"}}}, true},
-		{"child open file", []domain.Process{{OpenFiles: []string{"/a/b/c.json"}}}, true},
-		{"sibling prefix is not a match", []domain.Process{{OpenFiles: []string{"/a/bc"}}}, false},
+		{"exact open file", []domain.Process{{OpenFiles: []string{src}}}, true},
+		{"child open file", []domain.Process{{OpenFiles: []string{child}}}, true},
+		{"sibling prefix is not a match", []domain.Process{{OpenFiles: []string{sibling}}}, false},
 		{"args carry session id", []domain.Process{{Args: []string{"--resume", "sess-123"}}}, true},
 		{"no match", []domain.Process{{OpenFiles: []string{"/x"}, Args: []string{"y"}}}, false},
 		{"empty", nil, false},
