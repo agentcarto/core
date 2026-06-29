@@ -82,15 +82,24 @@ func Apply(ctx context.Context, p domain.MutationPlan) (domain.MutationResult, e
 			r.RolledBack = append(r.RolledBack, b.path)
 		}
 	}
+	// markPending records every not-yet-completed write (the failed one and the
+	// rest) so MutationResult.Pending is consistent regardless of which step failed.
+	markPending := func(rest []domain.FileWrite) {
+		for _, x := range rest {
+			r.Pending = append(r.Pending, x.Path)
+		}
+	}
 	for i, w := range p.Writes {
 		select {
 		case <-ctx.Done():
+			markPending(p.Writes[i:])
 			rollback()
 			return r, ctx.Err()
 		default:
 		}
 		b, e := captureBackup(w.Path)
 		if e != nil {
+			markPending(p.Writes[i:])
 			rollback()
 			return r, e
 		}
@@ -100,9 +109,7 @@ func Apply(ctx context.Context, p domain.MutationPlan) (domain.MutationResult, e
 			mode = 0600
 		}
 		if e = atomicWrite(w.Path, w.Data, mode); e != nil {
-			for _, x := range p.Writes[i:] {
-				r.Pending = append(r.Pending, x.Path)
-			}
+			markPending(p.Writes[i:])
 			rollback()
 			return r, e
 		}

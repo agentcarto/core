@@ -31,7 +31,11 @@ func DecodeOptions(n *yaml.Node, dst any) error {
 	return d.Decode(dst)
 }
 func ExpandHome(p string) string {
-	if p == "~" || strings.HasPrefix(p, "~/") {
+	if p == "~" {
+		h, _ := os.UserHomeDir()
+		return h
+	}
+	if strings.HasPrefix(p, "~/") {
 		h, _ := os.UserHomeDir()
 		return filepath.Join(h, strings.TrimPrefix(p, "~/"))
 	}
