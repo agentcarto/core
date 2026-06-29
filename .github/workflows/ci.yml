@@ -1,0 +1,25 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # core is the base module with no sibling replace targets, so a single
+      # checkout is enough.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build & test
+        run: |
+          go build ./...
+          go test ./...
+      - name: Race test
+        if: runner.os == 'Linux'
+        run: go test -race ./...
