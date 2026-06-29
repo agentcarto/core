@@ -181,6 +181,7 @@ type ForkTarget struct {
 }
 type Process struct {
 	PID             int32
+	PPID            int32
 	Executable      string
 	Args, OpenFiles []string
 	CWD             string
