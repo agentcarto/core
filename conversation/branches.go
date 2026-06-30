@@ -287,10 +287,17 @@ func BranchKind(c domain.Conversation, root string) string {
 
 func Subtree(c domain.Conversation, root string) []string {
 	out := []string{}
+	// Guard against cycles in the children graph: a corrupt transcript can link
+	// nodes so the DFS revisits them, growing both stack and out without bound.
+	seen := map[string]bool{}
 	stack := []string{root}
 	for len(stack) > 0 {
 		id := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		out = append(out, id)
 		stack = append(stack, c.Children[id]...)
 	}

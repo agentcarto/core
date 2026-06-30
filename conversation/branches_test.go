@@ -8,6 +8,25 @@ import (
 )
 
 func ev(k domain.EventKind, s string) domain.Event { return domain.Event{Kind: k, Text: s} }
+
+// A children graph with a cycle (X<->Y) must not make Subtree's DFS loop
+// forever; before the fix it grew the stack and result without bound.
+func TestSubtreeCycleTerminates(t *testing.T) {
+	c := domain.NewConversation([]domain.ConvNode{
+		{ID: "X", Parent: "Y"},
+		{ID: "Y", Parent: "X"},
+	})
+	done := make(chan []string, 1)
+	go func() { done <- Subtree(c, "X") }()
+	select {
+	case got := <-done:
+		if len(got) > len(c.Nodes) {
+			t.Fatalf("Subtree visited a node twice: %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Subtree did not terminate on a cyclic children graph")
+	}
+}
 func TestTurns(t *testing.T) {
 	c := domain.NewConversation([]domain.ConvNode{{ID: "a", Events: []domain.Event{ev(domain.EventUser, "/clear")}}, {ID: "b", Parent: "a", Events: []domain.Event{ev(domain.EventUser, "Q1")}}, {ID: "c", Parent: "b", Events: []domain.Event{ev(domain.EventAssistant, "A1")}}, {ID: "d", Parent: "c", Events: []domain.Event{ev(domain.EventUser, "Q2")}}})
 	turns := TurnsOfPath(c, c.ActivePath())
