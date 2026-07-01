@@ -142,7 +142,12 @@ func (c Conversation) ActivePath() []string {
 		return nil
 	}
 	var out []string
-	for id := c.ActiveLeaf; id != ""; {
+	// Guard against cyclic parent links (a corrupt transcript can make a node's
+	// parent chain loop back on itself). Without seen, the walk would append to
+	// out forever and grow memory without bound until the process is OOM-killed.
+	seen := map[string]bool{}
+	for id := c.ActiveLeaf; id != "" && !seen[id]; {
+		seen[id] = true
 		out = append(out, id)
 		n, ok := c.Nodes[id]
 		if !ok {
