@@ -57,32 +57,13 @@ func TestCleanTitle(t *testing.T) {
 	})
 }
 
-func TestTitleCandidate(t *testing.T) {
-	cases := []struct {
-		name, in, want string
-	}{
-		{"empty", "", ""},
-		{"plain", "do the thing", "do the thing"},
-		{"user_query unwrapped", "<user_query>real ask</user_query>", "real ask"},
-		{"command noise", "<command-name>/foo</command-name>", ""},
-		{"caveat noise (case-insensitive)", "Caveat: the messages below", ""},
-		{"system reminder after spaces", "   <system-reminder>x", ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := TitleCandidate(c.in); got != c.want {
-				t.Errorf("TitleCandidate(%q) = %q, want %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
 func TestTitle(t *testing.T) {
-	// The first user event with non-noise content wins; noise is skipped.
+	// The first user event carrying a plugin-normalized Prompt wins; pseudo
+	// prompts (empty Prompt) and non-user events are skipped.
 	events := []domain.Event{
 		{Kind: domain.EventSystem, Text: "boot"},
 		{Kind: domain.EventUser, Text: "<command-name>/init</command-name>"},
-		{Kind: domain.EventUser, Text: "  build   the app  "},
+		{Kind: domain.EventUser, Text: "  build   the app  ", Prompt: "build the app"},
 	}
 	if got := Title(events, "def"); got != "build the app" {
 		t.Errorf("Title = %q, want %q", got, "build the app")

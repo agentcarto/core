@@ -2,101 +2,32 @@ package conversation
 
 import (
 	"github.com/agentcarto/core/domain"
-	"regexp"
 	"strings"
 )
 
 const SubstantialMinSize = 6
 
-var commandRE = regexp.MustCompile(`<command-name>\s*([^<]+?)\s*</command-name>`)
-var bashInputRE = regexp.MustCompile(`(?s)^<bash-input>\s*(.*?)\s*</bash-input>`)
+// This package is agent-agnostic: what counts as a genuine prompt or command
+// is decided by each plugin at parse time (its own tag vocabulary stays there)
+// and arrives here as the normalized Event.Prompt/Command fields.
 
-// pseudoPromptPrefixes lists the prefixes of system-injected text that should
-// not be treated as a genuine user prompt.
-var pseudoPromptPrefixes = []string{
-	"<command-name>", "<command-message>", "<command-args>",
-	"<local-command-stdout>", "<local-command-stderr>",
-	"<system-reminder>", "<system_reminder>",
-	"<bash-input>", "<bash-stdout>", "<bash-stderr>",
-	"<task-notification>", "<local-command-caveat>",
-	"[Request interrupted",
-	"<environment_context>", "<user_instructions>", "<turn_aborted>",
-	"<user_info>", "<rules>", "<agent_skills>",
-}
-
-// IsPseudoPrompt reports whether s is not a genuine user prompt but rather empty
-// text, a system-injected block, or a short slash command on a single line.
-func IsPseudoPrompt(s string) bool {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return true
-	}
-	for _, p := range pseudoPromptPrefixes {
-		if strings.HasPrefix(s, p) {
-			return true
-		}
-	}
-	return strings.HasPrefix(s, "/") && !strings.Contains(s, "\n") && len([]rune(s)) <= 40
-}
-func stripForkBoilerplate(s string) string {
-	const end = "</fork-boilerplate>"
-	if i := strings.Index(s, end); i >= 0 {
-		return strings.TrimSpace(s[i+len(end):])
-	}
-	return s
-}
-func stripUserQuery(s string) string {
-	t := strings.TrimSpace(s)
-	if strings.HasPrefix(t, "<user_query>") && strings.HasSuffix(t, "</user_query>") {
-		return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(t, "<user_query>"), "</user_query>"))
-	}
-	return s
-}
+// NodePromptText returns the genuine user prompt the node carries, normalized
+// by the plugin at parse time, or "" when it has none.
 func NodePromptText(n domain.ConvNode) string {
 	for _, e := range n.Events {
-		if e.RawType == "compact_summary" {
-			continue
-		}
-		if e.Kind != domain.EventUser {
-			continue
-		}
-		t := stripUserQuery(stripForkBoilerplate(e.Text))
-		if !IsPseudoPrompt(t) {
-			return strings.Join(strings.Fields(t), " ")
+		if e.Kind == domain.EventUser && e.Prompt != "" {
+			return e.Prompt
 		}
 	}
 	return ""
 }
+
+// NodeCommandName returns the normalized label of the user-issued command the
+// node carries ("/verify", "! ls -la"), or "" when it has none.
 func NodeCommandName(n domain.ConvNode) string {
 	for _, e := range n.Events {
-		if e.Kind != domain.EventUser {
-			continue
-		}
-		m := commandRE.FindStringSubmatch(e.Text)
-		if len(m) > 1 {
-			name := strings.TrimSpace(m[1])
-			if !strings.HasPrefix(name, "/") {
-				name = "/" + name
-			}
-			if name != "/clear" {
-				return name
-			}
-		}
-	}
-	return ""
-}
-// NodeBashInput returns the shell command the user ran with the "!" prefix
-// (recorded as a message starting with a <bash-input> block), or "" if the
-// node has none. The prefix requirement keeps prompts that merely quote the
-// tag from matching.
-func NodeBashInput(n domain.ConvNode) string {
-	for _, e := range n.Events {
-		if e.Kind != domain.EventUser {
-			continue
-		}
-		m := bashInputRE.FindStringSubmatch(strings.TrimSpace(e.Text))
-		if len(m) > 1 && m[1] != "" {
-			return strings.Join(strings.Fields(m[1]), " ")
+		if e.Kind == domain.EventUser && e.Command != "" {
+			return e.Command
 		}
 	}
 	return ""
@@ -111,7 +42,7 @@ func NodeHasUser(n domain.ConvNode) bool {
 }
 func NodeCompact(n domain.ConvNode) bool {
 	for _, e := range n.Events {
-		if e.RawType == "compact_summary" {
+		if e.RawType == domain.RawCompactSummary {
 			return true
 		}
 	}
@@ -131,7 +62,7 @@ func TurnsOfPath(c domain.Conversation, path []string) [][]string {
 	lastBoundaryTurnID := ""
 	for _, id := range path {
 		n := c.Nodes[id]
-		boundary := NodePromptText(n) != "" || NodeCommandName(n) != "" || NodeBashInput(n) != "" || NodeCompact(n)
+		boundary := NodePromptText(n) != "" || NodeCommandName(n) != "" || NodeCompact(n)
 		turnID := NodeTurnID(n)
 		sameBoundaryTurn := turnID != "" && turnID == lastBoundaryTurnID
 		if boundary && seenBoundary && len(turns) > 0 && !sameBoundaryTurn {
@@ -171,7 +102,7 @@ func NodeHasRealContent(n domain.ConvNode) bool {
 		return true
 	}
 	for _, e := range n.Events {
-		if e.RawType == "compact_summary" {
+		if e.RawType == domain.RawCompactSummary {
 			continue
 		}
 		switch e.Kind {
@@ -216,9 +147,6 @@ func TurnHeadline(c domain.Conversation, ids []string) string {
 		}
 		if x := NodeCommandName(n); x != "" {
 			return x
-		}
-		if x := NodeBashInput(n); x != "" {
-			return "! " + x
 		}
 	}
 	for _, id := range ids {

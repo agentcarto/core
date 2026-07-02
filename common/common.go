@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -196,52 +195,13 @@ func CleanTitle(t string) string {
 	return t
 }
 
-// noiseTitlePrefixes lists system-injected preambles that begin text which is
-// unsuitable as a title.
-var noiseTitlePrefixes = []string{
-	"<command-name>", "<command-message>", "<environment_context>",
-	"<user_info>", "<local-command", "<system-reminder>", "<bash-input>",
-	"<bash-stdout>", "caveat:", "<context-",
-	"# agents.md instructions", "agents.md instructions",
-}
-
-func isNoiseTitle(t string) bool {
-	s := strings.ToLower(strings.TrimSpace(t))
-	for _, p := range noiseTitlePrefixes {
-		if strings.HasPrefix(s, p) {
-			return true
-		}
-	}
-	return false
-}
-
-var userQueryRE = regexp.MustCompile(`(?s)<user_query>(.*?)</user_query>`)
-
-// TitleCandidate extracts, from a user message, the real content that can serve
-// as a listing title. If the text is wrapped in <user_query>, its inner content
-// is returned; if it starts with a noise preamble, an empty string is returned.
-func TitleCandidate(t string) string {
-	if t == "" {
-		return ""
-	}
-	s := strings.TrimSpace(t)
-	if m := userQueryRE.FindStringSubmatch(s); m != nil && strings.TrimSpace(m[1]) != "" {
-		return strings.TrimSpace(m[1])
-	}
-	if isNoiseTitle(s) {
-		return ""
-	}
-	return s
-}
-
-// Title uses the first non-noise user message as the listing title, falling
-// back to def when there is none.
+// Title uses the first genuine user prompt (normalized by the plugin at parse
+// time into Event.Prompt) as the listing title, falling back to def when there
+// is none.
 func Title(events []domain.Event, def string) string {
 	for _, e := range events {
-		if e.Kind == domain.EventUser {
-			if cand := TitleCandidate(e.Text); cand != "" {
-				return CleanTitle(cand)
-			}
+		if e.Kind == domain.EventUser && e.Prompt != "" {
+			return CleanTitle(e.Prompt)
 		}
 	}
 	return def
