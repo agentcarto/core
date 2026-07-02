@@ -246,6 +246,7 @@ func Title(events []domain.Event, def string) string {
 	}
 	return def
 }
+
 // UnmarshalJSONMap decodes a JSON object preserving number fidelity: numbers
 // become json.Number instead of float64, so re-encoding an object read from a
 // user's session log cannot corrupt integers beyond 2^53.
