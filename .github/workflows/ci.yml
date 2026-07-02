@@ -23,3 +23,37 @@ jobs:
       - name: Race test
         if: runner.os == 'Linux'
         run: go test -race ./...
+
+  # Every downstream module replaces github.com/agentcarto/core with this
+  # checkout, so a breaking core change only surfaces in the host and plugin
+  # repos. Check them all here (make check) against the change under test.
+  # (Mirrors the host CI's check job; kept as a copy to avoid cross-repo
+  # workflow coupling.)
+  dependents:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: agentcarto-core
+      - uses: actions/checkout@v4
+        with: { repository: agentcarto/agentcarto, path: agentcarto }
+      - uses: actions/checkout@v4
+        with: { repository: agentcarto/plugin-claude, path: plugin-claude }
+      - uses: actions/checkout@v4
+        with: { repository: agentcarto/plugin-codex, path: plugin-codex }
+      - uses: actions/checkout@v4
+        with: { repository: agentcarto/plugin-grok, path: plugin-grok }
+      - uses: actions/checkout@v4
+        with: { repository: agentcarto/plugin-copilot, path: plugin-copilot }
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agentcarto/go.mod
+      # make plugins builds sibling modules by path, which needs a workspace
+      # (locally the checkout root carries go.work; CI recreates it here).
+      - name: Create workspace
+        run: |
+          go work init ./agentcarto ./agentcarto-core ./plugin-claude ./plugin-codex ./plugin-grok ./plugin-copilot
+          go work sync
+      - name: make check
+        working-directory: agentcarto
+        run: make check
