@@ -1,3 +1,7 @@
+// Unix-only: the test drives the orphaning via sh and probes the helper with
+// syscall.Kill, which does not exist on Windows (where PPID never changes).
+//go:build !windows
+
 package plugin
 
 // Process-tree test for the orphan watchdog: a plugin whose host dies without
@@ -7,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,9 +35,6 @@ func TestHelperWatchParent(t *testing.T) {
 }
 
 func TestWatchParentExitsWhenParentDies(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("PPID does not change on windows")
-	}
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
