@@ -9,6 +9,7 @@ import (
 const SubstantialMinSize = 6
 
 var commandRE = regexp.MustCompile(`<command-name>\s*([^<]+?)\s*</command-name>`)
+var bashInputRE = regexp.MustCompile(`(?s)^<bash-input>\s*(.*?)\s*</bash-input>`)
 
 // pseudoPromptPrefixes lists the prefixes of system-injected text that should
 // not be treated as a genuine user prompt.
@@ -84,6 +85,22 @@ func NodeCommandName(n domain.ConvNode) string {
 	}
 	return ""
 }
+// NodeBashInput returns the shell command the user ran with the "!" prefix
+// (recorded as a message starting with a <bash-input> block), or "" if the
+// node has none. The prefix requirement keeps prompts that merely quote the
+// tag from matching.
+func NodeBashInput(n domain.ConvNode) string {
+	for _, e := range n.Events {
+		if e.Kind != domain.EventUser {
+			continue
+		}
+		m := bashInputRE.FindStringSubmatch(strings.TrimSpace(e.Text))
+		if len(m) > 1 && m[1] != "" {
+			return strings.Join(strings.Fields(m[1]), " ")
+		}
+	}
+	return ""
+}
 func NodeHasUser(n domain.ConvNode) bool {
 	for _, e := range n.Events {
 		if e.Kind == domain.EventUser {
@@ -114,7 +131,7 @@ func TurnsOfPath(c domain.Conversation, path []string) [][]string {
 	lastBoundaryTurnID := ""
 	for _, id := range path {
 		n := c.Nodes[id]
-		boundary := NodePromptText(n) != "" || NodeCommandName(n) != "" || NodeCompact(n)
+		boundary := NodePromptText(n) != "" || NodeCommandName(n) != "" || NodeBashInput(n) != "" || NodeCompact(n)
 		turnID := NodeTurnID(n)
 		sameBoundaryTurn := turnID != "" && turnID == lastBoundaryTurnID
 		if boundary && seenBoundary && len(turns) > 0 && !sameBoundaryTurn {
@@ -199,6 +216,9 @@ func TurnHeadline(c domain.Conversation, ids []string) string {
 		}
 		if x := NodeCommandName(n); x != "" {
 			return x
+		}
+		if x := NodeBashInput(n); x != "" {
+			return "! " + x
 		}
 	}
 	for _, id := range ids {

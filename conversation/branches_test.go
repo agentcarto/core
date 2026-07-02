@@ -67,6 +67,28 @@ func TestSameCodexTurnIDDoesNotSplitTurn(t *testing.T) {
 		t.Fatalf("turns=%v", turns)
 	}
 }
+func TestBashInputTurnBoundary(t *testing.T) {
+	c := domain.NewConversation([]domain.ConvNode{
+		{ID: "a", Events: []domain.Event{ev(domain.EventUser, "Q1")}},
+		{ID: "b", Parent: "a", Events: []domain.Event{ev(domain.EventAssistant, "A1")}},
+		{ID: "c", Parent: "b", Events: []domain.Event{ev(domain.EventUser, "<bash-input>ls -la</bash-input>")}},
+		{ID: "d", Parent: "c", Events: []domain.Event{ev(domain.EventUser, "<bash-stdout>total 0</bash-stdout><bash-stderr></bash-stderr>")}},
+		{ID: "e", Parent: "d", Events: []domain.Event{ev(domain.EventUser, "Q2")}},
+	})
+	turns := TurnsOfPath(c, c.ActivePath())
+	if len(turns) != 3 || strings.Join(turns[1], ",") != "c,d" {
+		t.Fatalf("turns=%v", turns)
+	}
+	if h := TurnHeadline(c, turns[1]); h != "! ls -la" {
+		t.Fatalf("headline=%q", h)
+	}
+}
+func TestQuotedBashInputTagIsNotBashInput(t *testing.T) {
+	n := domain.ConvNode{Events: []domain.Event{ev(domain.EventUser, "why does <bash-input>x</bash-input> not split turns?")}}
+	if got := NodeBashInput(n); got != "" {
+		t.Fatalf("quoted tag matched: %q", got)
+	}
+}
 func TestClearCommandExcludedFromBoundary(t *testing.T) {
 	clear := domain.ConvNode{Events: []domain.Event{ev(domain.EventUser, "<command-message>clear</command-message>\n<command-name>/clear</command-name>")}}
 	if NodeCommandName(clear) != "" {
