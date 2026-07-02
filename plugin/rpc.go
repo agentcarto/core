@@ -21,9 +21,18 @@ import (
 )
 
 // Handshake is the startup handshake between host and plugin. A mismatched
-// MagicCookie rejects accidental launches (i.e. running the binary normally).
+// MagicCookie rejects accidental launches (i.e. running the binary normally);
+// a mismatched ProtocolVersion rejects a host/plugin pair built against
+// incompatible core contracts (plugins are released independently of the
+// host). Bump ProtocolVersion when the semantics of the transferred domain
+// types change in a way both sides must agree on.
+//
+// ProtocolVersion=2: turn boundaries, headlines and titles are derived from
+// the Event.Prompt/Command fields plugins fill at parse time; a v1 plugin
+// never sets them, which would silently collapse every conversation into a
+// single turn.
 var Handshake = goplugin.HandshakeConfig{
-	ProtocolVersion:  1,
+	ProtocolVersion:  2,
 	MagicCookieKey:   "AGENTCARTO_PLUGIN",
 	MagicCookieValue: "agentcarto-v1",
 }
