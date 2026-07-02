@@ -12,6 +12,7 @@ import (
 	"net/rpc"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/agentcarto/core/domain"
 	hclog "github.com/hashicorp/go-hclog"
@@ -270,6 +271,7 @@ func (p *AgentPlugin) Client(_ *goplugin.MuxBroker, c *rpc.Client) (interface{},
 // Serve is the entry point of a plugin process. Each plugin-*'s cmd/main.go calls
 // it, passing in its factory.
 func Serve(factory Factory) {
+	go watchParent(os.Getppid(), 5*time.Second)
 	goplugin.Serve(&goplugin.ServeConfig{
 		HandshakeConfig: Handshake,
 		Plugins:         map[string]goplugin.Plugin{PluginSetName: &AgentPlugin{Factory: factory}},
@@ -279,6 +281,23 @@ func Serve(factory Factory) {
 			JSONFormat: true,
 		}),
 	})
+}
+
+// watchParent exits the plugin process once its parent (the host) is gone.
+// go-plugin's server only shuts down through the host's graceful Kill, and the
+// host hands its own stdin to the plugin, so when the host dies any other way
+// (SIGHUP on a closed terminal, SIGKILL, os.Exit) nothing tells the plugin to
+// stop and it lives on as an orphan — keeping its binary text-busy against
+// updates. Reparenting shows up as a PPID change (to init or a subreaper),
+// which is polled here. On Windows the PPID never changes, so this watchdog
+// simply never fires there.
+func watchParent(parent int, interval time.Duration) {
+	for {
+		time.Sleep(interval)
+		if os.Getppid() != parent {
+			os.Exit(0)
+		}
+	}
 }
 
 // Launched is a handle to a plugin process started by the host.
