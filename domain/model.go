@@ -64,6 +64,11 @@ type Session struct {
 
 func (s Session) Key() SessionKey { return SessionKey{s.PluginID, s.SessionID} }
 
+// RawCompactSummary is the normalized RawType every plugin assigns to the
+// summary event a context compaction leaves behind. Core treats such an event
+// as a turn boundary that must not become a headline or title.
+const RawCompactSummary = "compact_summary"
+
 type Event struct {
 	Kind      EventKind `json:"kind"`
 	Text      string    `json:"text,omitempty"`
@@ -71,6 +76,19 @@ type Event struct {
 	ToolName  string    `json:"tool_name,omitempty"`
 	RawType   string    `json:"raw_type,omitempty"`
 	TurnID    string    `json:"turn_id,omitempty"`
+	// Prompt and Command are normalized by the plugin at parse time; they are
+	// how agent-specific vocabulary (wrapper tags, preambles, command syntax)
+	// stays inside the plugin. Core derives turn boundaries, headlines and
+	// titles from these fields alone, never from Text.
+	//
+	// Prompt is the cleaned, whitespace-folded text of a genuine user prompt.
+	// It is empty for system-injected pseudo-prompts (reminders, preambles,
+	// notifications), command invocations, and compact summaries.
+	Prompt string `json:"prompt,omitempty"`
+	// Command is the normalized label of a user-issued command ("/verify",
+	// "! ls -la"). Commands that must not open a turn (e.g. Claude's /clear)
+	// are the plugin's own policy: it leaves Command empty for them.
+	Command string `json:"command,omitempty"`
 }
 type ConvNode struct {
 	ID        string    `json:"id"`
