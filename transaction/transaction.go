@@ -74,10 +74,16 @@ func Apply(ctx context.Context, p domain.MutationPlan) (domain.MutationResult, e
 	rollback := func() {
 		for i := len(bs) - 1; i >= 0; i-- {
 			b := bs[i]
+			var e error
 			if b.existed {
-				_ = atomicWrite(b.path, b.data, b.mode)
+				e = atomicWrite(b.path, b.data, b.mode)
 			} else {
-				_ = os.Remove(b.path)
+				e = os.Remove(b.path)
+			}
+			if e != nil {
+				// Don't claim a restore that did not happen.
+				r.Warnings = append(r.Warnings, "rollback failed: "+b.path+": "+e.Error())
+				continue
 			}
 			r.RolledBack = append(r.RolledBack, b.path)
 		}
@@ -120,6 +126,12 @@ func Apply(ctx context.Context, p domain.MutationPlan) (domain.MutationResult, e
 			for _, x := range p.Moves[i:] {
 				r.Pending = append(r.Pending, x.From)
 			}
+			// Moves are not rolled back (a partially merged directory has no
+			// safe inverse), and neither are the writes that preceded them —
+			// say so instead of leaving the asymmetry implicit.
+			if len(r.Completed) > 0 {
+				r.Warnings = append(r.Warnings, fmt.Sprintf("move failed after %d completed step(s); completed writes/moves were not rolled back", len(r.Completed)))
+			}
 			return r, e
 		}
 	}
@@ -150,13 +162,31 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(tmp, path)
 }
 
-// moveMerge moves from into to. If to already exists, entries are merged flatly,
+// moveMerge moves from into to. A file is renamed directly (unless to already
+// exists). For a directory, if to already exists, entries are merged flatly,
 // one level deep: it does not recurse, name collisions (whether file or
 // directory) are skipped with a warning, and from is removed only once it is
-// empty (any leftover residue is kept).
+// empty (any leftover residue is kept). A missing from is recorded as a
+// warning rather than silently ignored.
 func moveMerge(from, to string, r *domain.MutationResult) error {
-	if st, e := os.Stat(from); e != nil || !st.IsDir() {
-		return nil // no-op if it does not exist or is not a directory
+	st, e := os.Stat(from)
+	if e != nil {
+		r.Warnings = append(r.Warnings, "move source missing (skipped): "+from)
+		return nil
+	}
+	if !st.IsDir() {
+		if _, de := os.Stat(to); de == nil {
+			r.Warnings = append(r.Warnings, "skipped (already exists): "+to)
+			return nil
+		}
+		if e := os.MkdirAll(filepath.Dir(to), 0700); e != nil {
+			return e
+		}
+		if e := os.Rename(from, to); e != nil {
+			return e
+		}
+		r.Completed = append(r.Completed, from+" -> "+to)
+		return nil
 	}
 	if _, e := os.Stat(to); os.IsNotExist(e) {
 		if e = os.MkdirAll(filepath.Dir(to), 0700); e != nil {

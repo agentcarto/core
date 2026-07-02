@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,8 +249,8 @@ func TestRewriteJSONL(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, changed, err := RewriteJSONL(p, func(o map[string]any) bool {
-		if o["keep"] == float64(2) {
-			o["keep"] = float64(20)
+		if o["keep"] == json.Number("2") {
+			o["keep"] = 20
 			return true
 		}
 		return false
@@ -269,5 +270,97 @@ func TestRewriteJSONL(t *testing.T) {
 	}
 	if !strings.Contains(s, "\"keep\":20") {
 		t.Errorf("mutation not applied: %s", s)
+	}
+}
+
+// Untouched lines must survive byte-for-byte: no float64 rounding of large
+// integers, no HTML escaping, no key reordering. These logs belong to the
+// user's agent, so any silent rewrite is data corruption.
+func TestRewriteJSONLPreservesUntouchedLines(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "in.jsonl")
+	untouched := `{"z":1,"a":9007199254740993,"html":"<tag> & co","nested":{"big":18446744073709551615}}`
+	changedLine := `{"cwd":"/old","n":9007199254740993,"s":"<x>"}`
+	if err := os.WriteFile(p, []byte(untouched+"\n"+changedLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, changed, err := RewriteJSONL(p, func(o map[string]any) bool {
+		if o["cwd"] == "/old" {
+			o["cwd"] = "/new"
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != 1 {
+		t.Fatalf("changed = %d, want 1", changed)
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if lines[0] != untouched {
+		t.Errorf("untouched line rewritten:\n got %s\nwant %s", lines[0], untouched)
+	}
+	// The mutated line keeps big integers and angle brackets intact.
+	if !strings.Contains(lines[1], "9007199254740993") {
+		t.Errorf("big integer corrupted in mutated line: %s", lines[1])
+	}
+	if !strings.Contains(lines[1], "<x>") {
+		t.Errorf("HTML-escaped mutated line: %s", lines[1])
+	}
+	if !strings.Contains(lines[1], `"cwd":"/new"`) {
+		t.Errorf("mutation not applied: %s", lines[1])
+	}
+}
+
+func TestRewriteJSONPreservesNumbersAndAngleBrackets(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(p, []byte(`{"info":{"cwd":"/old"},"big":9007199254740993,"s":"<x>"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// No change: original bytes come back untouched.
+	out, changed, err := RewriteJSON(p, func(o map[string]any) bool { return false })
+	if err != nil || changed {
+		t.Fatalf("unexpected: changed=%v err=%v", changed, err)
+	}
+	if !strings.Contains(string(out), `"big":9007199254740993`) {
+		t.Errorf("no-op rewrite corrupted file: %s", out)
+	}
+	out, changed, err = RewriteJSON(p, func(o map[string]any) bool {
+		Map(o["info"])["cwd"] = "/new"
+		return true
+	})
+	if err != nil || !changed {
+		t.Fatalf("unexpected: changed=%v err=%v", changed, err)
+	}
+	if !strings.Contains(string(out), "9007199254740993") || !strings.Contains(string(out), "<x>") {
+		t.Errorf("rewrite corrupted numbers or escaping: %s", out)
+	}
+}
+
+// A line larger than any fixed scanner buffer must not abort the walk: the
+// old bufio.Scanner-based implementation stopped at the first >16MB line and
+// silently dropped the rest of the session.
+func TestJSONLinesHandlesOversizedLines(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "in.jsonl")
+	big := `{"pad":"` + strings.Repeat("x", 17<<20) + `"}`
+	content := `{"n":1}` + "\n" + big + "\n" + `{"n":2}` + "\n"
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := 0
+	err := JSONLines(context.Background(), p, func(_ int, o map[string]any) error {
+		if _, ok := o["n"]; ok {
+			got++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 2 {
+		t.Errorf("lines after the oversized one were dropped: got %d JSON lines with n, want 2", got)
 	}
 }

@@ -182,9 +182,23 @@ func (s *rpcServer) DetectActive(a DetectActiveArgs, r *DetectActiveReply) error
 // implement ExecutableProvider, since that was folded into Descriptor.Executable.
 type Client struct{ rpc *rpc.Client }
 
+// call issues an RPC honoring ctx: when ctx is cancelled or times out, the
+// caller unblocks immediately with ctx.Err(). net/rpc cannot cancel the call
+// on the plugin side, so a hung plugin still holds its own goroutine — but the
+// host stops waiting (previously a hung Scan blocked the host forever).
+func (c *Client) call(ctx context.Context, method string, args, reply any) error {
+	done := c.rpc.Go(method, args, reply, make(chan *rpc.Call, 1)).Done
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case d := <-done:
+		return d.Error
+	}
+}
+
 // Init passes id and options to the plugin so it can build its implementation,
 // and returns the resulting Descriptor.
-func (c *Client) Init(id string, options *yaml.Node) (Descriptor, error) {
+func (c *Client) Init(ctx context.Context, id string, options *yaml.Node) (Descriptor, error) {
 	var b []byte
 	if options != nil && options.Kind != 0 {
 		var err error
@@ -193,19 +207,19 @@ func (c *Client) Init(id string, options *yaml.Node) (Descriptor, error) {
 		}
 	}
 	var r InitReply
-	err := c.rpc.Call("Plugin.Init", InitArgs{ID: id, Options: b}, &r)
+	err := c.call(ctx, "Plugin.Init", InitArgs{ID: id, Options: b}, &r)
 	return r.Desc, err
 }
 
-func (c *Client) Scan(_ context.Context, in ScanInput) (ScanOutput, error) {
+func (c *Client) Scan(ctx context.Context, in ScanInput) (ScanOutput, error) {
 	var r ScanReply
-	err := c.rpc.Call("Plugin.Scan", ScanArgs{In: in}, &r)
+	err := c.call(ctx, "Plugin.Scan", ScanArgs{In: in}, &r)
 	return r.Out, err
 }
 
-func (c *Client) LoadConversation(_ context.Context, ref domain.SessionRef) (*domain.Conversation, error) {
+func (c *Client) LoadConversation(ctx context.Context, ref domain.SessionRef) (*domain.Conversation, error) {
 	var r LoadConvReply
-	if err := c.rpc.Call("Plugin.LoadConversation", LoadConvArgs{Ref: ref}, &r); err != nil {
+	if err := c.call(ctx, "Plugin.LoadConversation", LoadConvArgs{Ref: ref}, &r); err != nil {
 		return nil, err
 	}
 	if !r.Has {
@@ -221,21 +235,21 @@ func (c *Client) ResumeCommand(s domain.Session) (domain.Command, error) {
 	return r.Cmd, err
 }
 
-func (c *Client) PlanFork(_ context.Context, s domain.Session, t domain.ForkTarget) (domain.MutationPlan, domain.Command, error) {
+func (c *Client) PlanFork(ctx context.Context, s domain.Session, t domain.ForkTarget) (domain.MutationPlan, domain.Command, error) {
 	var r PlanForkReply
-	err := c.rpc.Call("Plugin.PlanFork", PlanForkArgs{S: s, T: t}, &r)
+	err := c.call(ctx, "Plugin.PlanFork", PlanForkArgs{S: s, T: t}, &r)
 	return r.Plan, r.Cmd, err
 }
 
-func (c *Client) PlanRelocate(_ context.Context, old, nw string, sessions []domain.Session) (domain.MutationPlan, error) {
+func (c *Client) PlanRelocate(ctx context.Context, old, nw string, sessions []domain.Session) (domain.MutationPlan, error) {
 	var r PlanRelocateReply
-	err := c.rpc.Call("Plugin.PlanRelocate", PlanRelocateArgs{Old: old, New: nw, Sessions: sessions}, &r)
+	err := c.call(ctx, "Plugin.PlanRelocate", PlanRelocateArgs{Old: old, New: nw, Sessions: sessions}, &r)
 	return r.Plan, err
 }
 
-func (c *Client) DetectActive(_ context.Context, sessions []domain.Session, procs []domain.Process) ([]domain.Session, error) {
+func (c *Client) DetectActive(ctx context.Context, sessions []domain.Session, procs []domain.Process) ([]domain.Session, error) {
 	var r DetectActiveReply
-	err := c.rpc.Call("Plugin.DetectActive", DetectActiveArgs{Sessions: sessions, Procs: procs}, &r)
+	err := c.call(ctx, "Plugin.DetectActive", DetectActiveArgs{Sessions: sessions, Procs: procs}, &r)
 	return r.Out, err
 }
 

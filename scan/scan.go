@@ -18,7 +18,8 @@ import (
 
 // Cache is used only during a single Scan. It holds the previous snapshot
 // (warm/dead) and, in the scan loop, callers invoke Reuse/Skip/Dead/Stamp to
-// avoid re-parsing.
+// avoid re-parsing. It is not safe for concurrent use: a plugin that scans
+// paths from multiple goroutines must guard the Cache with its own mutex.
 type Cache struct {
 	warm map[string]domain.Session // path -> previous Session
 	dead map[string]string         // previous negative cache (path -> fingerprint)

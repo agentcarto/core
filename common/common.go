@@ -31,12 +31,14 @@ func DecodeOptions(n *yaml.Node, dst any) error {
 	return d.Decode(dst)
 }
 func ExpandHome(p string) string {
-	if p == "~" {
-		h, _ := os.UserHomeDir()
-		return h
-	}
-	if strings.HasPrefix(p, "~/") {
-		h, _ := os.UserHomeDir()
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		h, e := os.UserHomeDir()
+		if e != nil || h == "" {
+			return p // no home to expand into; leave the path as written
+		}
+		if p == "~" {
+			return h
+		}
 		return filepath.Join(h, strings.TrimPrefix(p, "~/"))
 	}
 	return p
@@ -47,25 +49,34 @@ func JSONLines(ctx context.Context, path string, fn func(int, map[string]any) er
 		return e
 	}
 	defer f.Close()
-	s := bufio.NewScanner(f)
-	s.Buffer(make([]byte, 64<<10), 16<<20)
+	// bufio.Reader instead of bufio.Scanner: session logs can contain arbitrarily
+	// long lines (e.g. base64 image pastes), and a Scanner token limit would
+	// silently drop everything after the first oversized line.
+	r := bufio.NewReaderSize(f, 64<<10)
 	line := 0
-	for s.Scan() {
-		line++
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+	for {
+		b, re := r.ReadBytes('\n')
+		if len(b) > 0 {
+			line++
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			var v map[string]any
+			if json.Unmarshal(b, &v) == nil {
+				if e := fn(line, v); e != nil {
+					return e
+				}
+			}
 		}
-		var v map[string]any
-		if json.Unmarshal(s.Bytes(), &v) != nil {
-			continue
+		if re == io.EOF {
+			return nil
 		}
-		if e := fn(line, v); e != nil {
-			return e
+		if re != nil {
+			return re
 		}
 	}
-	return s.Err()
 }
 func String(v any) string      { s, _ := v.(string); return s }
 func Map(v any) map[string]any { m, _ := v.(map[string]any); return m }
@@ -127,13 +138,6 @@ func MaxMTime(path string) time.Time {
 		best = st.ModTime()
 	}
 	return best
-}
-func Fingerprint(path string) string {
-	st, e := os.Stat(path)
-	if e != nil {
-		return ""
-	}
-	return fmt.Sprintf("%s:%d:%d", filepath.Clean(path), st.Size(), st.ModTime().UnixNano())
 }
 func IDFromPath(path string) string {
 	b := filepath.Base(path)
@@ -242,15 +246,36 @@ func Title(events []domain.Event, def string) string {
 	}
 	return def
 }
-func ReadAll(path string) ([]byte, error) {
-	f, e := os.Open(path)
-	if e != nil {
+// UnmarshalJSONMap decodes a JSON object preserving number fidelity: numbers
+// become json.Number instead of float64, so re-encoding an object read from a
+// user's session log cannot corrupt integers beyond 2^53.
+func UnmarshalJSONMap(b []byte) (map[string]any, error) {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	var o map[string]any
+	if e := d.Decode(&o); e != nil {
 		return nil, e
 	}
-	defer f.Close()
-	return io.ReadAll(io.LimitReader(f, 64<<20))
+	return o, nil
 }
 
+// MarshalJSONLine encodes an object as a single JSONL line (trailing newline
+// included) without HTML-escaping <, > and &, matching what agents write.
+func MarshalJSONLine(o map[string]any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if e := enc.Encode(o); e != nil {
+		return nil, e
+	}
+	return buf.Bytes(), nil
+}
+
+// RewriteJSONL rewrites a session log line by line. Lines that mutate leaves
+// untouched (and lines that are not JSON objects) are copied through verbatim,
+// so an unmodified line is byte-for-byte identical in the output; only mutated
+// lines are re-encoded (via UnmarshalJSONMap/MarshalJSONLine, so numbers and
+// angle brackets survive). Blank lines are dropped.
 func RewriteJSONL(path string, mutate func(map[string]any) bool) ([]byte, int, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -262,18 +287,18 @@ func RewriteJSONL(path string, mutate func(map[string]any) bool) ([]byte, int, e
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		var o map[string]any
-		if json.Unmarshal(line, &o) != nil {
+		o, e := UnmarshalJSONMap(line)
+		if e != nil || !mutate(o) {
 			out.Write(line)
 			out.WriteByte('\n')
 			continue
 		}
-		if mutate(o) {
-			changed++
+		changed++
+		enc, e := MarshalJSONLine(o)
+		if e != nil {
+			return nil, 0, e
 		}
-		enc, _ := json.Marshal(o)
 		out.Write(enc)
-		out.WriteByte('\n')
 	}
 	return out.Bytes(), changed, nil
 }
@@ -282,19 +307,21 @@ func RewriteJSON(path string, mutate func(map[string]any) bool) ([]byte, bool, e
 	if e != nil {
 		return nil, false, e
 	}
-	var o map[string]any
-	if e = json.Unmarshal(b, &o); e != nil {
+	o, e := UnmarshalJSONMap(b)
+	if e != nil {
 		return nil, false, e
 	}
-	changed := mutate(o)
-	if !changed {
+	if !mutate(o) {
 		return b, false, nil
 	}
-	b, e = json.MarshalIndent(o, "", "  ")
-	if e == nil {
-		b = append(b, '\n')
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if e := enc.Encode(o); e != nil {
+		return nil, true, e
 	}
-	return b, true, e
+	return buf.Bytes(), true, nil
 }
 func NewID() string { return uuid.NewString() }
 func ProcessMatches(s domain.Session, ps []domain.Process) bool {
