@@ -19,6 +19,10 @@ const (
 	EventTurnComplete EventKind = "turn_complete"
 	EventSystem       EventKind = "system"
 	EventMeta         EventKind = "meta"
+	// EventTask is a background-task completion notice (e.g. a subagent
+	// finishing). The plugin extracts it from its own log format at parse time:
+	// ToolArg carries the one-line label ("<id> [status]"), ToolDetail the body.
+	EventTask EventKind = "task"
 )
 
 type Status string
@@ -56,7 +60,12 @@ type Session struct {
 	// the entry unique, while the real sessionId is the same as the parent's.
 	// Running `--resume <SessionID>` would fail because no such session exists
 	// (the fork branch has no resumable head). The resume action is not offered.
-	Unresumable   bool   `json:"unresumable,omitempty"`
+	Unresumable bool `json:"unresumable,omitempty"`
+	// InferCWD marks a session whose agent does not record a working directory
+	// (the plugin sets it when CWD is unknown by design, e.g. Copilot). The
+	// host may then infer the CWD from a temporally-near session — a
+	// cross-plugin heuristic only the host can run.
+	InferCWD      bool   `json:"infer_cwd,omitempty"`
 	Model         string `json:"model,omitempty"`
 	Fingerprint   string `json:"fingerprint,omitempty"`
 	ParserVersion string `json:"parser_version,omitempty"`
@@ -89,6 +98,30 @@ type Event struct {
 	// "! ls -la"). Commands that must not open a turn (e.g. Claude's /clear)
 	// are the plugin's own policy: it leaves Command empty for them.
 	Command string `json:"command,omitempty"`
+	// ToolArg is the one-line display argument for a tool call or task event,
+	// normalized by the plugin from its own input format (a shell command as
+	// "$ make check", a file path, a search pattern). The host renders it next
+	// to ToolName without inspecting Text.
+	ToolArg string `json:"tool_arg,omitempty"`
+	// ToolDetail is the multi-line display body for the expanded block. When
+	// empty the host falls back to Text (the raw payload).
+	ToolDetail string `json:"tool_detail,omitempty"`
+	// Changes are the file edits this event performs (a tool call requesting
+	// them or a file_change applying them), normalized by the plugin. The host
+	// aggregates and renders them without knowing any agent's edit format.
+	Changes []FileChange `json:"changes,omitempty"`
+}
+
+// FileChange is one file's normalized edit. Diff holds apply_patch-style hunk
+// lines ("@@", "+", "-", context; no file-header line — the host derives the
+// header from Path and Op). An empty Diff means only the counts are known.
+type FileChange struct {
+	Path string `json:"path"`
+	// Op is "add", "update" (also the default for "") or "delete".
+	Op      string `json:"op,omitempty"`
+	Added   int    `json:"added,omitempty"`
+	Removed int    `json:"removed,omitempty"`
+	Diff    string `json:"diff,omitempty"`
 }
 type ConvNode struct {
 	ID        string    `json:"id"`
