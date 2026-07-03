@@ -9,3 +9,5 @@ plugin depends only on this module.
 - `conversation` — builds the conversation tree (rewind/fork branches)
 - `transaction` — atomic file mutations
 - `common` — shared plugin helpers
+
+Writing a plugin? Start with the [Plugin Development Guide](PLUGIN_GUIDE.md).
