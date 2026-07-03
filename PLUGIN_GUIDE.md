@@ -170,9 +170,16 @@ Rules of thumb:
 - When your agent logs both the *request* for an edit (a `tool_call`) and its
   *applied result* (a `file_change`) in the same turn, set `Changes` on both;
   the host generically prefers the applied one, so nothing is counted twice.
-- Reconstruct diffs however your data allows: `plugin-claude` diffs
-  old/new strings into hunks (`unifiedHunks`), `plugin-codex` splits the
-  apply_patch documents its agent already writes.
+- Reconstruct diffs however your data allows: `plugin-claude` diffs old/new
+  strings into hunks (`unifiedHunks`), while `plugin-codex` and
+  `plugin-copilot` feed the apply_patch documents they already have through
+  `common.SplitPatch`, which returns ready-made `[]FileChange`.
+- `core/common` offers agent-agnostic building blocks for the contract:
+  `common.SplitPatch` (apply_patch document → `[]FileChange`),
+  `common.ToolArgFromJSON` (salient one-line argument from a JSON payload) and
+  `common.IsBareSlashCommand` (keep bare `/commands` out of `Prompt`). Use
+  them instead of re-implementing; what stays per-plugin is your agent's own
+  tag vocabulary and payload shapes.
 - Keep `Text` as the raw payload; normalized fields are *additions*, and raw
   text remains the fallback for display and search.
 - **Any change to parsing or classification requires a `ParserVersion` bump.**
