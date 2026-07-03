@@ -16,13 +16,15 @@ module).
 
 ## Skeleton
 
-A plugin module depends only on `github.com/agentcarto/core` and exposes a
-`Factory`:
+A plugin module depends on `github.com/agentcarto/core` (plus small direct
+dependencies of its own, such as `gopkg.in/yaml.v3` for options decoding) and
+never on the host or on other plugins. It exposes a `Factory`:
 
 ```go
 package myagent
 
 import (
+    "github.com/agentcarto/core/common"
     "github.com/agentcarto/core/domain"
     "github.com/agentcarto/core/plugin"
     "gopkg.in/yaml.v3"
@@ -40,11 +42,9 @@ func (Factory) Descriptor() plugin.Descriptor {
 }
 
 func (Factory) New(id string, options *yaml.Node) (any, error) {
-    o := Options{} // your own struct; decode config.yaml's options: block
-    if options != nil {
-        if err := options.Decode(&o); err != nil {
-            return nil, err
-        }
+    o := Options{} // your own struct for config.yaml's options: block
+    if err := common.DecodeOptions(options, &o); err != nil {
+        return nil, err // DecodeOptions rejects unknown option keys
     }
     return &Plugin{id: id, o: o}, nil
 }
@@ -114,8 +114,8 @@ the process boundary. `Reuse` refuses warm entries stamped with a different
 
 Session fields worth knowing:
 
-- `Title` — use `common.Title(events, fallback)`; it picks the first event with
-  a non-empty `Prompt` (see the normalization contract below).
+- `Title` — use `common.Title(events, fallback)`; it picks the first *user*
+  event with a non-empty `Prompt` (see the normalization contract below).
 - `CWD` — set `"(unknown)"` when unresolvable. If your agent *never* records a
   working directory, also set `InferCWD: true`; the host then borrows the CWD
   of a temporally-near session of any agent (a cross-plugin heuristic that can
@@ -215,9 +215,11 @@ The host resolves the binary via `plugins[].command`, then
 - Unit-test your classifier and normalization directly (see the
   `classify_test.go` / `tool_test.go` files in the existing plugins); they are
   the contract the host relies on.
-- Releases are per-repository: each plugin publishes
-  `agentcarto-plugin-<type>_<os>_<arch>.tar.gz` on its own GitHub Release and
-  the installer fetches the latest. Two version knobs matter:
+- Releases are per-repository: each plugin repo publishes
+  `agentcarto-plugin-<repo>_<os>_<arch>.tar.gz` (`.zip` on Windows) on its own
+  GitHub Release, and the installer fetches the latest. A repo hosting several
+  factories bundles all its binaries in one archive (`plugin-copilot` ships
+  both `-vc` and `-jb`). Two version knobs matter:
   - `Descriptor.ParserVersion` — bump on any parse/classification change
     (cache invalidation).
   - `plugin.Handshake.ProtocolVersion` (in core) — bumped when the meaning of

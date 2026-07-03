@@ -173,11 +173,16 @@ func Linear(events []domain.Event) domain.Conversation {
 	}
 	return domain.NewConversation(nodes)
 }
+// LastMeaningful returns the kind of the last event that reflects conversation
+// state. Meta/system records and task notices (notifications, not state) are
+// skipped so Session.LastKind stays within the kinds the status display knows.
 func LastMeaningful(events []domain.Event) domain.EventKind {
 	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Kind != domain.EventMeta && events[i].Kind != domain.EventSystem {
-			return events[i].Kind
+		switch events[i].Kind {
+		case domain.EventMeta, domain.EventSystem, domain.EventTask:
+			continue
 		}
+		return events[i].Kind
 	}
 	return ""
 }
