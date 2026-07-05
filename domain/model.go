@@ -85,6 +85,11 @@ type Event struct {
 	ToolName  string    `json:"tool_name,omitempty"`
 	RawType   string    `json:"raw_type,omitempty"`
 	TurnID    string    `json:"turn_id,omitempty"`
+	// Model is the model that produced this event, normalized by the plugin
+	// from its own log format (per assistant response). It is empty when the
+	// plugin cannot attribute a model to the event; the host then falls back to
+	// the session-level model.
+	Model string `json:"model,omitempty"`
 	// Prompt and Command are normalized by the plugin at parse time; they are
 	// how agent-specific vocabulary (wrapper tags, preambles, command syntax)
 	// stays inside the plugin. Core derives turn boundaries, headlines and
