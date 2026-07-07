@@ -174,12 +174,13 @@ func Linear(events []domain.Event) domain.Conversation {
 	return domain.NewConversation(nodes)
 }
 // LastMeaningful returns the kind of the last event that reflects conversation
-// state. Meta/system records and task notices (notifications, not state) are
-// skipped so Session.LastKind stays within the kinds the status display knows.
+// state. Meta/system records, task notices (notifications, not state) and
+// attachments (context injected alongside a prompt) are skipped so
+// Session.LastKind stays within the kinds the status display knows.
 func LastMeaningful(events []domain.Event) domain.EventKind {
 	for i := len(events) - 1; i >= 0; i-- {
 		switch events[i].Kind {
-		case domain.EventMeta, domain.EventSystem, domain.EventTask:
+		case domain.EventMeta, domain.EventSystem, domain.EventTask, domain.EventAttachment:
 			continue
 		}
 		return events[i].Kind
@@ -201,12 +202,19 @@ func CleanTitle(t string) string {
 }
 
 // Title uses the first genuine user prompt (normalized by the plugin at parse
-// time into Event.Prompt) as the listing title, falling back to def when there
-// is none.
+// time into Event.Prompt) as the listing title. A session with no genuine
+// prompt falls back to the first user-issued command (Event.Command) — the
+// same prompt-then-command precedence TurnHeadline uses — and to def when
+// there is neither.
 func Title(events []domain.Event, def string) string {
 	for _, e := range events {
 		if e.Kind == domain.EventUser && e.Prompt != "" {
 			return CleanTitle(e.Prompt)
+		}
+	}
+	for _, e := range events {
+		if e.Kind == domain.EventUser && e.Command != "" {
+			return CleanTitle(e.Command)
 		}
 	}
 	return def

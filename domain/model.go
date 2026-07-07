@@ -23,6 +23,11 @@ const (
 	// finishing). The plugin extracts it from its own log format at parse time:
 	// ToolArg carries the one-line label ("<id> [status]"), ToolDetail the body.
 	EventTask EventKind = "task"
+	// EventAttachment is file or directory content injected into the context by
+	// user reference (e.g. an @-mention), not produced by a tool call. The
+	// plugin normalizes it at parse time: ToolArg carries the path, Text the
+	// injected content.
+	EventAttachment EventKind = "attachment"
 )
 
 type Status string

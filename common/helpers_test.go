@@ -59,14 +59,19 @@ func TestCleanTitle(t *testing.T) {
 
 func TestTitle(t *testing.T) {
 	// The first user event carrying a plugin-normalized Prompt wins; pseudo
-	// prompts (empty Prompt) and non-user events are skipped.
+	// prompts (empty Prompt) and non-user events are skipped, and a Prompt
+	// anywhere beats an earlier Command.
 	events := []domain.Event{
 		{Kind: domain.EventSystem, Text: "boot"},
-		{Kind: domain.EventUser, Text: "<command-name>/init</command-name>"},
+		{Kind: domain.EventUser, Text: "<command-name>/init</command-name>", Command: "/init"},
 		{Kind: domain.EventUser, Text: "  build   the app  ", Prompt: "build the app"},
 	}
 	if got := Title(events, "def"); got != "build the app" {
 		t.Errorf("Title = %q, want %q", got, "build the app")
+	}
+	// A session with no genuine prompt falls back to the first command.
+	if got := Title(events[:2], "def"); got != "/init" {
+		t.Errorf("Title(command only) = %q, want /init", got)
 	}
 	if got := Title(nil, "fallback"); got != "fallback" {
 		t.Errorf("Title(nil) = %q, want fallback", got)
@@ -149,6 +154,7 @@ func TestLastMeaningful(t *testing.T) {
 		{Kind: domain.EventToolCall},
 		{Kind: domain.EventMeta},
 		{Kind: domain.EventSystem},
+		{Kind: domain.EventAttachment},
 	}
 	if got := LastMeaningful(events); got != domain.EventToolCall {
 		t.Errorf("LastMeaningful = %v, want tool_call", got)
