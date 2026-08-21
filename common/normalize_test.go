@@ -63,3 +63,22 @@ func TestLastMeaningfulSkipsTaskNotices(t *testing.T) {
 		t.Fatalf("LastMeaningful=%q, want assistant", got)
 	}
 }
+
+// Agents disagree on the case of the same field. Copilot sends filePath where
+// Claude sends file_path, and a tool call whose argument is not recognized
+// renders as a bare name: no path on screen, nothing for a search to match.
+func TestToolArgFromJSONAcceptsBothSpellings(t *testing.T) {
+	cases := map[string]string{
+		`{"file_path":"a.go"}`:        "a.go",
+		`{"filePath":"b.go"}`:         "b.go",
+		`{"notebookPath":"n.ipynb"}`:  "n.ipynb",
+		`{"relativePath":"sub/c.go"}`: "sub/c.go",
+		`{"toolName":"read_file"}`:    "", // not an argument
+		`not json`:                    "",
+	}
+	for in, want := range cases {
+		if got := ToolArgFromJSON(in); got != want {
+			t.Errorf("ToolArgFromJSON(%s) = %q, want %q", in, got, want)
+		}
+	}
+}

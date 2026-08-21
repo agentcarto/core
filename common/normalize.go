@@ -20,8 +20,21 @@ func IsBareSlashCommand(s string) bool {
 }
 
 // toolArgKeys are common JSON field names of a tool call's salient argument,
-// in preference order.
-var toolArgKeys = []string{"description", "file_path", "notebook_path", "path", "command", "pattern", "query", "url", "prompt"}
+// in preference order. Both spellings of each name are listed: agents disagree
+// on case (Claude sends file_path, Copilot sends filePath), and a payload whose
+// key is missing here renders as a bare tool name — no path, no command, and
+// nothing for a search to match.
+var toolArgKeys = []string{
+	"description",
+	"file_path", "filePath",
+	"notebook_path", "notebookPath",
+	"path", "relativePath",
+	"command",
+	"pattern",
+	"query",
+	"url",
+	"prompt",
+}
 
 // ToolArgFromJSON extracts the one-line display argument for a tool call from
 // a JSON invocation payload, or "" when text is not a JSON object or has no
