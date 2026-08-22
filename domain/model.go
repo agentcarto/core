@@ -70,8 +70,15 @@ type Session struct {
 	// (the plugin sets it when CWD is unknown by design, e.g. Copilot). The
 	// host may then infer the CWD from a temporally-near session — a
 	// cross-plugin heuristic only the host can run.
-	InferCWD      bool   `json:"infer_cwd,omitempty"`
-	Model         string `json:"model,omitempty"`
+	InferCWD bool   `json:"infer_cwd,omitempty"`
+	Model    string `json:"model,omitempty"`
+	// LogDeleted marks a session whose log is no longer on disk: the agent, or
+	// someone tidying up, removed the file it was read from. What remains of it is
+	// in the host's cache, which is why the session is still listed at all.
+	//
+	// Only the host ever sets this. A plugin cannot: scanning is precisely what
+	// failed to find the session, so a plugin never sees one.
+	LogDeleted    bool   `json:"log_deleted,omitempty"`
 	Fingerprint   string `json:"fingerprint,omitempty"`
 	ParserVersion string `json:"parser_version,omitempty"`
 }
