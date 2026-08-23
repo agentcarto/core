@@ -173,6 +173,7 @@ func Linear(events []domain.Event) domain.Conversation {
 	}
 	return domain.NewConversation(nodes)
 }
+
 // LastMeaningful returns the kind of the last event that reflects conversation
 // state. Meta/system records, task notices (notifications, not state) and
 // attachments (context injected alongside a prompt) are skipped so
@@ -186,6 +187,30 @@ func LastMeaningful(events []domain.Event) domain.EventKind {
 		return events[i].Kind
 	}
 	return ""
+}
+
+// Ongoing maps the last completed event of a log to the activity the session is
+// in right now, for agents that append a record only once a block is finished
+// (Claude, Codex). For those logs a "reasoning" record means the reasoning is
+// over — the model is already producing the next block — so reporting the
+// record's own kind as Session.LastKind would label the activity one phase
+// behind. Agents that log phase transitions as they happen (grok) already
+// report the current activity and must not call this.
+//
+// The user kind is deliberately left alone: ActiveStatus keys its
+// userRunning branch off it, and folding it into reasoning would make a
+// pending prompt look like a running turn for agents that are not.
+func Ongoing(last domain.EventKind) domain.EventKind {
+	switch last {
+	case domain.EventReasoning, domain.EventAssistant:
+		// Reasoning done, or one text block written: the model is generating the
+		// next block (more text, or a tool call's input).
+		return domain.EventStream
+	case domain.EventToolResult:
+		// The result went back to the model, which is now working on its reply.
+		return domain.EventReasoning
+	}
+	return last
 }
 
 // CleanTitle collapses the whitespace in a title candidate and truncates it to

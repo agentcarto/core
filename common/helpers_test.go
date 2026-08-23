@@ -164,6 +164,27 @@ func TestLastMeaningful(t *testing.T) {
 	}
 }
 
+func TestOngoing(t *testing.T) {
+	cases := []struct{ last, want domain.EventKind }{
+		{domain.EventReasoning, domain.EventStream},
+		{domain.EventAssistant, domain.EventStream},
+		{domain.EventToolResult, domain.EventReasoning},
+		{domain.EventToolCall, domain.EventToolCall},
+		{domain.EventUser, domain.EventUser},
+		{domain.EventTurnComplete, domain.EventTurnComplete},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := Ongoing(c.last); got != c.want {
+			t.Errorf("Ongoing(%q) = %q, want %q", c.last, got, c.want)
+		}
+	}
+	// The mapping must not turn a finished turn into a running one.
+	if got := ActiveStatus(Ongoing(domain.EventTurnComplete), true); got != domain.StatusReady {
+		t.Errorf("ActiveStatus after turn_complete = %v, want ready", got)
+	}
+}
+
 func TestMaxMTime(t *testing.T) {
 	dir := t.TempDir()
 	old := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)

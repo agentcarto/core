@@ -41,19 +41,24 @@ const (
 type SessionKey struct{ PluginID, SessionID string }
 type SessionRef struct{ Source string }
 type Session struct {
-	PluginID        string     `json:"plugin_id"`
-	AgentType       string     `json:"agent_type"`
-	SessionID       string     `json:"session_id"`
-	CWD             string     `json:"cwd"`
-	StartedAt       time.Time  `json:"started_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	Title           string     `json:"title"`
-	SourceRef       SessionRef `json:"source_ref"`
-	Status          Status     `json:"status,omitempty"`
-	LastKind        EventKind  `json:"last_kind,omitempty"`
-	PermissionWait  bool       `json:"permission_wait,omitempty"`
-	ParentSessionID string     `json:"parent_session_id,omitempty"`
-	ForkAt          string     `json:"fork_at,omitempty"`
+	PluginID  string     `json:"plugin_id"`
+	AgentType string     `json:"agent_type"`
+	SessionID string     `json:"session_id"`
+	CWD       string     `json:"cwd"`
+	StartedAt time.Time  `json:"started_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Title     string     `json:"title"`
+	SourceRef SessionRef `json:"source_ref"`
+	Status    Status     `json:"status,omitempty"`
+	// LastKind is the activity the session is in, not merely the kind of the
+	// last record in its log: the status display reads it as "what is happening
+	// now". A plugin whose log records a block only once it is complete must
+	// therefore map the tail through common.Ongoing before filling this in,
+	// or every label would lag one phase behind.
+	LastKind        EventKind `json:"last_kind,omitempty"`
+	PermissionWait  bool      `json:"permission_wait,omitempty"`
+	ParentSessionID string    `json:"parent_session_id,omitempty"`
+	ForkAt          string    `json:"fork_at,omitempty"`
 	// EmptyFork marks a full-copy fork that was created in agentcarto but never
 	// continued: its connection point ForkAt is at the tip with no child below
 	// it, so it is identical to the parent's prefix and carries no unique
