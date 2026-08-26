@@ -32,6 +32,14 @@ func NodeCommandName(n domain.ConvNode) string {
 	}
 	return ""
 }
+
+// NodeHasUtterance reports whether the node carries something the user actually
+// said — a genuine prompt or a command — as opposed to a user-role record the
+// agent injected in their name (a system reminder, a caveat, a bare slash
+// command, a compact summary).
+func NodeHasUtterance(n domain.ConvNode) bool {
+	return NodePromptText(n) != "" || NodeCommandName(n) != ""
+}
 func NodeHasUser(n domain.ConvNode) bool {
 	for _, e := range n.Events {
 		if e.Kind == domain.EventUser {
@@ -62,7 +70,7 @@ func TurnsOfPath(c domain.Conversation, path []string) [][]string {
 	lastBoundaryTurnID := ""
 	for _, id := range path {
 		n := c.Nodes[id]
-		boundary := NodePromptText(n) != "" || NodeCommandName(n) != "" || NodeCompact(n)
+		boundary := NodeHasUtterance(n) || NodeCompact(n)
 		turnID := NodeTurnID(n)
 		sameBoundaryTurn := turnID != "" && turnID == lastBoundaryTurnID
 		if boundary && seenBoundary && len(turns) > 0 && !sameBoundaryTurn {
@@ -98,7 +106,7 @@ func TurnIsCompact(c domain.Conversation, ids []string) bool {
 // message, a tool call/result, or reasoning. Because NodeCommandName excludes
 // /clear, a node containing only /clear is also false here.
 func NodeHasRealContent(n domain.ConvNode) bool {
-	if NodePromptText(n) != "" || NodeCommandName(n) != "" {
+	if NodeHasUtterance(n) {
 		return true
 	}
 	for _, e := range n.Events {
