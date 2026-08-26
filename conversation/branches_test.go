@@ -139,6 +139,82 @@ func TestSubstantialByUserPrompt(t *testing.T) {
 	}
 }
 
+// A command is something the user said too. /clear is the exception
+// NodeCommandName carves out — it only wipes the screen — so a branch holding
+// nothing else is not one to offer.
+func TestSubstantialByUserCommand(t *testing.T) {
+	branch := func(e domain.Event) domain.Conversation {
+		return domain.NewConversation([]domain.ConvNode{
+			{ID: "a", Timestamp: time.Unix(1, 0), Events: []domain.Event{prompt("Q")}},
+			{ID: "b", Parent: "a", Timestamp: time.Unix(9, 0), Events: []domain.Event{ev(domain.EventAssistant, "active")}},
+			{ID: "alt", Parent: "a", Timestamp: time.Unix(2, 0), Events: []domain.Event{e}},
+		})
+	}
+	if !IsSubstantial(branch(cmd("<command-name>/verify</command-name>", "/verify")), "alt") {
+		t.Fatal("a branch holding a command should be substantial")
+	}
+	if IsSubstantial(branch(pseudo("<command-name>/clear</command-name>")), "alt") {
+		t.Fatal("a /clear-only branch should not be substantial")
+	}
+}
+
+// A manual /compact leaves the raw "/compact" input behind as a childless leaf
+// while the compacted conversation resumes from the same parent. The leaf holds
+// a user event the plugin classified as system-injected, so there is nothing in
+// the branch to read and it must not be offered as one.
+func TestBranchWithNothingReadableIsNotSubstantial(t *testing.T) {
+	c := domain.NewConversation([]domain.ConvNode{
+		{ID: "a", Timestamp: time.Unix(1, 0), Events: []domain.Event{prompt("Q")}},
+		{ID: "b", Parent: "a", Timestamp: time.Unix(9, 0), Events: []domain.Event{ev(domain.EventAssistant, "active")}},
+		{ID: "raw", Parent: "a", Timestamp: time.Unix(2, 0), Events: []domain.Event{pseudo("/compact")}},
+	})
+	if IsSubstantial(c, "raw") {
+		t.Fatal("a branch holding only a system-injected user event should not be substantial")
+	}
+	active := map[string]bool{"a": true, "b": true}
+	trivial, subs := TurnBranches(c, TurnsOfPath(c, c.ActivePath())[0], active)
+	if trivial != 1 || len(subs) != 0 {
+		t.Fatalf("the branch should be counted as trivial, not offered: trivial=%d subs=%v", trivial, subs)
+	}
+}
+
+// A summary-only branch is likewise nothing anyone said: a compact summary is a
+// boundary of its own kind and never carries a prompt.
+func TestSummaryOnlyBranchIsNotSubstantial(t *testing.T) {
+	c := domain.NewConversation([]domain.ConvNode{
+		{ID: "a", Timestamp: time.Unix(1, 0), Events: []domain.Event{prompt("Q")}},
+		{ID: "b", Parent: "a", Timestamp: time.Unix(9, 0), Events: []domain.Event{ev(domain.EventAssistant, "active")}},
+		{ID: "sum", Parent: "a", Timestamp: time.Unix(2, 0), Events: []domain.Event{
+			{Kind: domain.EventUser, Text: "(summary)", RawType: domain.RawCompactSummary},
+		}},
+	})
+	if IsSubstantial(c, "sum") {
+		t.Fatal("a branch holding only a compact summary should not be substantial")
+	}
+}
+
+// Size still stands on its own: a branch large enough to be a conversation is
+// substantial even when no single node of it reads as content.
+func TestBigBranchIsSubstantialWithoutReadableContent(t *testing.T) {
+	nodes := []domain.ConvNode{
+		{ID: "a", Timestamp: time.Unix(1, 0), Events: []domain.Event{prompt("Q")}},
+		{ID: "b", Parent: "a", Timestamp: time.Unix(99, 0), Events: []domain.Event{ev(domain.EventAssistant, "active")}},
+	}
+	parent := "a"
+	for i := range SubstantialMinSize {
+		id := "alt" + string(rune('0'+i))
+		nodes = append(nodes, domain.ConvNode{
+			ID: id, Parent: parent, Timestamp: time.Unix(int64(2+i), 0),
+			Events: []domain.Event{pseudo("<system-reminder>")},
+		})
+		parent = id
+	}
+	c := domain.NewConversation(nodes)
+	if !IsSubstantial(c, "alt0") {
+		t.Fatalf("a branch of %d nodes should be substantial on size alone", SubstantialMinSize)
+	}
+}
+
 func TestBranchLeadFallsBackToAssistantOrTool(t *testing.T) {
 	c := domain.NewConversation([]domain.ConvNode{
 		{ID: "a", Timestamp: time.Unix(1, 0), Events: []domain.Event{prompt("Q")}},

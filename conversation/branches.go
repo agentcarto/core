@@ -40,14 +40,6 @@ func NodeCommandName(n domain.ConvNode) string {
 func NodeHasUtterance(n domain.ConvNode) bool {
 	return NodePromptText(n) != "" || NodeCommandName(n) != ""
 }
-func NodeHasUser(n domain.ConvNode) bool {
-	for _, e := range n.Events {
-		if e.Kind == domain.EventUser {
-			return true
-		}
-	}
-	return false
-}
 func NodeCompact(n domain.ConvNode) bool {
 	for _, e := range n.Events {
 		if e.RawType == domain.RawCompactSummary {
@@ -259,13 +251,23 @@ func Subtree(c domain.Conversation, root string) []string {
 	}
 	return out
 }
+
+// IsSubstantial reports whether an alternate line of conversation is worth
+// offering as one: either it is big enough to be a conversation in its own
+// right, or someone said something in it.
+//
+// A small branch holding no utterance reads as nothing at all, and the reader
+// lost nothing by not seeing it. Agents leave such branches behind: Claude Code
+// writes the raw "/compact" input as a childless leaf while the compacted
+// conversation resumes from the same parent, so every manual compaction sprouts
+// one.
 func IsSubstantial(c domain.Conversation, root string) bool {
 	xs := Subtree(c, root)
 	if len(xs) >= SubstantialMinSize {
 		return true
 	}
 	for _, id := range xs {
-		if NodeHasUser(c.Nodes[id]) {
+		if NodeHasUtterance(c.Nodes[id]) {
 			return true
 		}
 	}
