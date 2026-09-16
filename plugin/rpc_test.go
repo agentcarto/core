@@ -30,7 +30,7 @@ func (f *fakeImpl) Scan(_ context.Context, in ScanInput) (ScanOutput, error) {
 	if f.block != nil {
 		<-f.block
 	}
-	return ScanOutput{Sessions: []domain.Session{{PluginID: "p", SessionID: "s1", CWD: f.opts.Dir}}, Dead: in.Dead}, nil
+	return ScanOutput{Sessions: []domain.Session{{PluginID: "p", SessionID: "s1", CWD: f.opts.Dir, Unresumable: in.IncludeInternal}}, Dead: in.Dead}, nil
 }
 
 type fakeFactory struct{ impl *fakeImpl }
@@ -78,11 +78,11 @@ func TestRPCInitAndScanRoundTrip(t *testing.T) {
 	if impl.opts.Dir != "/tmp/x" {
 		t.Fatalf("yaml options did not survive the round trip: %+v", impl.opts)
 	}
-	out, e := c.Scan(context.Background(), ScanInput{Dead: map[string]string{"a": "fp"}})
+	out, e := c.Scan(context.Background(), ScanInput{Dead: map[string]string{"a": "fp"}, IncludeInternal: true})
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(out.Sessions) != 1 || out.Sessions[0].CWD != "/tmp/x" || out.Dead["a"] != "fp" {
+	if len(out.Sessions) != 1 || out.Sessions[0].CWD != "/tmp/x" || out.Dead["a"] != "fp" || !out.Sessions[0].Unresumable {
 		t.Fatalf("scan output did not survive the round trip: %+v", out)
 	}
 }

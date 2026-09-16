@@ -16,6 +16,9 @@ import (
 type ScanInput struct {
 	Warm []domain.Session  // Sessions from the previous snapshot (keyed by path = SourceRef.Source)
 	Dead map[string]string // previous negative cache (path -> fingerprint)
+	// IncludeInternal exposes embedded sessions for explicit ID/source lookup.
+	// Normal listings and indexing leave this false.
+	IncludeInternal bool
 }
 
 // ScanOutput is the scan result. Dead is this run's negative cache (passed back
