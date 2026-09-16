@@ -112,6 +112,50 @@ func TestSkipAndDead(t *testing.T) {
 	})
 }
 
+func TestCompositeFingerprintInvalidation(t *testing.T) {
+	dir := t.TempDir()
+	parent, review := filepath.Join(dir, "parent"), filepath.Join(dir, "review")
+	writeFile(t, parent, "question")
+	writeFile(t, review, "pending")
+	// The plugin chooses how to combine its dependencies.
+	combined := func() string { return Fingerprint(parent) + ":" + Fingerprint(review) }
+	original := combined()
+	s := session(parent, "", "")
+	New(nil, nil, "v1").StampWithFingerprint(&s, original)
+	if s.ParserVersion != "v1" || s.Fingerprint != original {
+		t.Fatalf("incorrect composite stamp: %+v", s)
+	}
+	for _, tc := range []struct {
+		name, version, fingerprint string
+		want                       bool
+	}{
+		{"unchanged", "v1", original, true},
+		{"parser changed", "v2", original, false},
+		{"dependency added", "v1", original + ":another", false},
+		{"dependency removed", "v1", Fingerprint(parent), false},
+		{"unknown fingerprint", "v1", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := New([]domain.Session{s}, nil, tc.version)
+			if _, ok := c.ReuseWithFingerprint(parent, tc.fingerprint); ok != tc.want {
+				t.Fatalf("reuse=%v want %v", ok, tc.want)
+			}
+		})
+	}
+	writeFile(t, review, "completed: allow")
+	c := New([]domain.Session{s}, nil, "v1")
+	if _, ok := c.ReuseWithFingerprint(parent, combined()); ok {
+		t.Fatal("review-only update reused a stale parent")
+	}
+	if _, ok := c.ReuseWithFingerprint("missing", original); ok {
+		t.Fatal("unknown session reused")
+	}
+	c.StampWithFingerprint(&s, "replacement")
+	if s.Fingerprint != original {
+		t.Fatal("already-stamped session overwritten")
+	}
+}
+
 func TestStamp(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "s.jsonl")

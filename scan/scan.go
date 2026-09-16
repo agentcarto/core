@@ -60,11 +60,18 @@ func (c *Cache) fp(path string) string {
 // Reuse returns the previous Session for path (skipping a parse) when one exists
 // and both its ParserVersion and Fingerprint still match.
 func (c *Cache) Reuse(path string) (domain.Session, bool) {
+	return c.ReuseWithFingerprint(path, c.fp(path))
+}
+
+// ReuseWithFingerprint checks a fingerprint supplied by a plugin, allowing a
+// conversation to depend on multiple logs. The caller must include all inputs
+// in the fingerprint and use the same value when stamping the parsed session.
+func (c *Cache) ReuseWithFingerprint(path, fingerprint string) (domain.Session, bool) {
 	s, ok := c.warm[path]
 	if !ok || s.ParserVersion != c.pv {
 		return domain.Session{}, false
 	}
-	if s.Fingerprint != c.fp(path) {
+	if fingerprint == "" || s.Fingerprint != fingerprint {
 		return domain.Session{}, false
 	}
 	return s, true
@@ -90,8 +97,16 @@ func (c *Cache) Dead(path string) { c.out[path] = c.fp(path) }
 // returned by Reuse already has them set, so there is no need to call Stamp on it.
 func (c *Cache) Stamp(s *domain.Session) {
 	if s.ParserVersion == "" {
+		c.StampWithFingerprint(s, c.fp(s.SourceRef.Source))
+	}
+}
+
+// StampWithFingerprint is Stamp for a plugin-supplied fingerprint. Like Stamp,
+// it preserves sessions that already carry a parser version.
+func (c *Cache) StampWithFingerprint(s *domain.Session, fingerprint string) {
+	if s.ParserVersion == "" {
 		s.ParserVersion = c.pv
-		s.Fingerprint = c.fp(s.SourceRef.Source)
+		s.Fingerprint = fingerprint
 	}
 }
 
