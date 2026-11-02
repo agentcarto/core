@@ -110,7 +110,8 @@ return plugin.ScanOutput{Sessions: out, Dead: cache.DeadOut()}, nil
 
 The fingerprint is a hash of `path:size:mtime`, reproducible on both sides of
 the process boundary. `Reuse` refuses warm entries stamped with a different
-`ParserVersion`, which is how a parser change invalidates old results.
+`ParserVersion` and `Skip` refuses dead entries recorded under a different one,
+which is how a parser change invalidates old results.
 
 Session fields worth knowing:
 

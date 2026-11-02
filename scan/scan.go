@@ -22,7 +22,7 @@ import (
 // paths from multiple goroutines must guard the Cache with its own mutex.
 type Cache struct {
 	warm map[string]domain.Session // path -> previous Session
-	dead map[string]string         // previous negative cache (path -> fingerprint)
+	dead map[string]string         // previous negative cache (path -> deadStamp)
 	pv   string                    // ParserVersion
 	out  map[string]string         // this run's negative cache (collected and returned by DeadOut)
 	fpc  map[string]string         // fingerprint memo (limits lstat of the same path to once)
@@ -82,7 +82,7 @@ func (c *Cache) ReuseWithFingerprint(path, fingerprint string) (domain.Session, 
 // forward.
 func (c *Cache) Skip(path string) bool {
 	v, ok := c.dead[path]
-	if !ok || v != c.fp(path) {
+	if !ok || v != c.deadStamp(path) {
 		return false
 	}
 	c.out[path] = v
@@ -91,7 +91,13 @@ func (c *Cache) Skip(path string) bool {
 
 // Dead records in the negative cache a path that was parsed but produced no
 // session.
-func (c *Cache) Dead(path string) { c.out[path] = c.fp(path) }
+func (c *Cache) Dead(path string) { c.out[path] = c.deadStamp(path) }
+
+// deadStamp is what a negative-cache entry holds. An exclusion is this parser's
+// verdict on these bytes, so a change to either one voids it. The fingerprint
+// alone would do within one process, but the host keeps these entries across runs
+// and plugin upgrades, where a log the new parser accepts must not stay excluded.
+func (c *Cache) deadStamp(path string) string { return c.pv + ":" + c.fp(path) }
 
 // Stamp fills in ParserVersion/Fingerprint on a newly parsed Session. A Session
 // returned by Reuse already has them set, so there is no need to call Stamp on it.

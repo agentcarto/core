@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,31 +84,59 @@ func TestReuse(t *testing.T) {
 }
 
 func TestSkipAndDead(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "empty.jsonl")
-	writeFile(t, p, "no sessions here")
-	fp := Fingerprint(p)
+	// An excluded log and the negative cache a scan left behind for it.
+	excluded := func(t *testing.T, pv string) (string, map[string]string) {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "empty.jsonl")
+		writeFile(t, p, "no sessions here")
+		c := New(nil, nil, pv)
+		c.Dead(p)
+		return p, c.DeadOut()
+	}
 
 	t.Run("skip unchanged dead path and carry it forward", func(t *testing.T) {
-		c := New(nil, map[string]string{p: fp}, "v1")
+		p, dead := excluded(t, "v1")
+		c := New(nil, dead, "v1")
 		if !c.Skip(p) {
 			t.Fatal("expected skip for unchanged dead path")
 		}
-		if c.DeadOut()[p] != fp {
-			t.Error("skipped path was not carried into DeadOut")
+		if !maps.Equal(c.DeadOut(), dead) {
+			t.Errorf("DeadOut = %v, want the entry carried forward: %v", c.DeadOut(), dead)
 		}
 	})
 	t.Run("do not skip changed dead path", func(t *testing.T) {
-		c := New(nil, map[string]string{p: "stale-fingerprint"}, "v1")
+		p, dead := excluded(t, "v1")
+		writeFile(t, p, "a conversation now")
+		c := New(nil, dead, "v1")
 		if c.Skip(p) {
-			t.Error("expected no skip when fingerprint differs")
+			t.Error("expected no skip when the file changed")
+		}
+		if len(c.DeadOut()) != 0 {
+			t.Errorf("DeadOut = %v, want the stale entry dropped", c.DeadOut())
 		}
 	})
-	t.Run("Dead records current fingerprint", func(t *testing.T) {
+	t.Run("do not skip after the parser changed", func(t *testing.T) {
+		p, dead := excluded(t, "v1")
+		c := New(nil, dead, "v2")
+		if c.Skip(p) {
+			t.Error("expected no skip: a new parser may accept this log")
+		}
+		if len(c.DeadOut()) != 0 {
+			t.Errorf("DeadOut = %v, want the stale entry dropped", c.DeadOut())
+		}
+	})
+	t.Run("do not skip an entry that names no parser", func(t *testing.T) {
+		p, _ := excluded(t, "v1")
+		c := New(nil, map[string]string{p: Fingerprint(p)}, "v1")
+		if c.Skip(p) {
+			t.Error("expected no skip for an entry written before the parser was recorded")
+		}
+	})
+	t.Run("do not skip a path that was never excluded", func(t *testing.T) {
+		p, _ := excluded(t, "v1")
 		c := New(nil, nil, "v1")
-		c.Dead(p)
-		if c.DeadOut()[p] != fp {
-			t.Errorf("DeadOut[%s] = %q, want %q", p, c.DeadOut()[p], fp)
+		if c.Skip(p) {
+			t.Error("expected no skip without an entry")
 		}
 	})
 }

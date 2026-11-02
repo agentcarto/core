@@ -273,9 +273,10 @@ type Snapshot struct {
 	Scanning bool
 	Errors   []PluginError
 	Version  uint64
-	// Dead maps path -> fingerprint for files/directories that were parsed but
-	// produced no session. It is carried across scans as a negative cache so
-	// that, if such a path is unchanged on the next scan, re-parsing is skipped.
+	// Dead maps path -> stamp for files/directories that were parsed but produced
+	// no session. It is carried across scans as a negative cache so that, if such a
+	// path is unchanged on the next scan, re-parsing is skipped. The stamps belong to
+	// core/scan; everything else only passes them along.
 	Dead map[string]string
 }
 type PluginError struct {
