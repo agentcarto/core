@@ -35,7 +35,11 @@ type Status string
 const (
 	StatusRunning Status = "running"
 	StatusReady   Status = "ready"
-	StatusOther   Status = "other"
+	// StatusShell is a session whose turn is over while a shell it started in
+	// the background is still alive. It is not Running: no turn is in progress,
+	// so nothing should be shown as still working on one.
+	StatusShell Status = "shell"
+	StatusOther Status = "other"
 )
 
 type SessionKey struct{ PluginID, SessionID string }
