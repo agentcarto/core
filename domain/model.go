@@ -63,10 +63,11 @@ type Session struct {
 	PermissionWait  bool      `json:"permission_wait,omitempty"`
 	ParentSessionID string    `json:"parent_session_id,omitempty"`
 	ForkAt          string    `json:"fork_at,omitempty"`
-	// EmptyFork marks a full-copy fork that was created in agentcarto but never
-	// continued: its connection point ForkAt is at the tip with no child below
-	// it, so it is identical to the parent's prefix and carries no unique
-	// information. Such sessions are excluded from the listing.
+	// EmptyFork marks a full-copy fork, created in agentcarto or by the agent's
+	// own fork command, that was never continued: its connection point ForkAt
+	// is at the tip with no child below it, so it is identical to the parent's
+	// prefix and carries no unique information. Such sessions are excluded from
+	// the listing.
 	EmptyFork bool `json:"empty_fork,omitempty"`
 	// Unresumable marks a session that cannot be resumed on its own through the
 	// agent's CLI. Claude's native subagent forks (under subagents/) are like
