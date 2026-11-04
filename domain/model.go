@@ -107,11 +107,12 @@ type Event struct {
 	ToolName  string    `json:"tool_name,omitempty"`
 	RawType   string    `json:"raw_type,omitempty"`
 	TurnID    string    `json:"turn_id,omitempty"`
-	// BetweenTurns marks an event written while no turn was running: a recap
-	// of the session (Claude's away_summary) or a context compaction done
-	// while the session sat idle. It is shown with the turn it is filed under
-	// but is not part of that turn's work, so it counts toward neither the
-	// turn's time nor its replies.
+	// BetweenTurns marks an event that is not part of any turn's work: a
+	// recap of the session (Claude's away_summary), a context compaction done
+	// while the session sat idle, or a command the agent ran itself without
+	// the model (Claude's /model, /fork), which no turn answers even when it
+	// is typed while one is running. It is shown with the turn it is filed
+	// under but counts toward neither the turn's time nor its replies.
 	BetweenTurns bool `json:"between_turns,omitempty"`
 	// Model is the model that produced this event, normalized by the plugin
 	// from its own log format (per assistant response). It is empty when the
