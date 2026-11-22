@@ -9,9 +9,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"net/rpc"
 	"os"
 	"os/exec"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/agentcarto/core/domain"
@@ -268,28 +272,99 @@ func (c *Client) DetectActive(ctx context.Context, sessions []domain.Session, pr
 // AgentPlugin is the go-plugin plugin.Plugin (net/rpc) implementation. On the
 // plugin side, Factory is set and passed to Serve; on the host side it is left
 // nil and a Client is received instead.
-type AgentPlugin struct{ Factory Factory }
+type AgentPlugin struct {
+	Factory Factory
+	// hangup is set on the plugin side only (see hostHangup).
+	hangup *hostHangup
+}
 
-func (p *AgentPlugin) Server(*goplugin.MuxBroker) (interface{}, error) {
+// Server returns the plugin side of the bridge and starts watching for the
+// host to hang up.
+func (p *AgentPlugin) Server(b *goplugin.MuxBroker) (interface{}, error) {
+	if p.hangup != nil {
+		go p.hangup.watch(b)
+	}
 	return &rpcServer{factory: p.Factory}, nil
 }
-func (p *AgentPlugin) Client(_ *goplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
+
+// Client returns the host side of the bridge and opens the stream the plugin
+// watches (see hostHangup).
+func (p *AgentPlugin) Client(b *goplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
+	// In the background: Dial waits for the plugin to accept, and a plugin built
+	// before this stream existed never does (go-plugin gives up after 5s). The
+	// stream is never closed from here. It ends with the connection, and closing
+	// it by hand at shutdown would be one more write of the kind it is here to
+	// keep from failing.
+	go func() { _, _ = b.Dial(hangupStreamID) }()
 	return &Client{rpc: c}, nil
+}
+
+// hangupStreamID names the broker stream the host opens for hostHangup. Ids
+// the broker hands out itself count up from 1, so the top of the range is
+// never one of them.
+const hangupStreamID = math.MaxUint32
+
+// hostHangup tells the plugin process when the host has closed its connection,
+// so that a plugin told to quit can leave after the host is done with the
+// connection instead of before.
+//
+// go-plugin's net/rpc client asks the plugin to quit and only then closes its
+// streams, each close being a write. A plugin that exits on being asked can be
+// gone by then: the write fails, and yamux reports each failure on the host's
+// stderr ("[ERR] yamux: Failed to write header"), which go-plugin gives no way
+// to redirect or silence. A stream that carries nothing is the one signal the
+// plugin can get that the host has hung up.
+type hostHangup struct {
+	watching atomic.Bool // the host opened the stream
+	gone     chan struct{}
+	once     sync.Once
+}
+
+func newHostHangup() *hostHangup { return &hostHangup{gone: make(chan struct{})} }
+
+// watch accepts the host's stream and blocks until it ends.
+func (h *hostHangup) watch(b *goplugin.MuxBroker) {
+	conn, err := b.Accept(hangupStreamID)
+	if err != nil {
+		return // a host built before this stream existed never opens it
+	}
+	h.watching.Store(true)
+	_, _ = io.Copy(io.Discard, conn)
+	h.once.Do(func() { close(h.gone) })
+}
+
+// wait blocks until the host has hung up, for at most limit, and reports
+// whether it did. When the host never opened the stream there is nothing to
+// wait for, and it returns at once.
+func (h *hostHangup) wait(limit time.Duration) bool {
+	if !h.watching.Load() {
+		return false
+	}
+	select {
+	case <-h.gone:
+		return true
+	case <-time.After(limit):
+		return false
+	}
 }
 
 // Serve is the entry point of a plugin process. Each plugin-*'s cmd/main.go calls
 // it, passing in its factory.
 func Serve(factory Factory) {
 	go watchParent(os.Getppid(), 5*time.Second)
+	hangup := newHostHangup()
 	goplugin.Serve(&goplugin.ServeConfig{
 		HandshakeConfig: Handshake,
-		Plugins:         map[string]goplugin.Plugin{PluginSetName: &AgentPlugin{Factory: factory}},
+		Plugins:         map[string]goplugin.Plugin{PluginSetName: &AgentPlugin{Factory: factory, hangup: hangup}},
 		Logger: hclog.New(&hclog.LoggerOptions{
 			Level:      hclog.Error,
 			Output:     os.Stderr,
 			JSONFormat: true,
 		}),
 	})
+	// The host has asked the plugin to quit. The limit stays under the two
+	// seconds go-plugin gives a plugin to exit before killing it.
+	hangup.wait(time.Second)
 }
 
 // watchParent exits the plugin process once its parent (the host) is gone.

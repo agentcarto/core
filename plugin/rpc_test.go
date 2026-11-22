@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/agentcarto/core/domain"
+	goplugin "github.com/hashicorp/go-plugin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -113,5 +114,52 @@ func TestRPCUnimplementedCapabilityError(t *testing.T) {
 	}
 	if _, e := c.LoadConversation(context.Background(), domain.SessionRef{}); e == nil {
 		t.Fatal("want error for unimplemented ConversationLoader")
+	}
+}
+
+// A plugin told to quit must outlast the host's side of the connection: the
+// host closes its streams after asking, and a plugin that is already gone turns
+// each close into a failed write on the host's stderr. So the plugin has to be
+// able to tell that the host hung up, and not think so while it is connected.
+func TestPluginSeesTheHostHangUp(t *testing.T) {
+	h := newHostHangup()
+	p := &AgentPlugin{Factory: &fakeFactory{impl: &fakeImpl{}}, hangup: h}
+	client, _ := goplugin.TestPluginRPCConn(t, map[string]goplugin.Plugin{PluginSetName: p}, nil)
+	raw, err := client.Dispense(PluginSetName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The bridge still works beside the extra stream.
+	if _, err := raw.(*Client).Init(context.Background(), "p", nil); err != nil {
+		t.Fatalf("Init over the bridge: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !h.watching.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("the plugin never saw the host open the stream")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if h.wait(50 * time.Millisecond) {
+		t.Fatal("the plugin took a connected host for one that hung up")
+	}
+
+	_ = client.Close()
+	if !h.wait(5 * time.Second) {
+		t.Fatal("the plugin did not see the host hang up")
+	}
+}
+
+// A host built before the stream existed never opens it. Waiting for a hang-up
+// that cannot be seen would hold every exit of the plugin for the full limit.
+func TestPluginDoesNotWaitForAHostThatNeverOpenedTheStream(t *testing.T) {
+	h := newHostHangup()
+	start := time.Now()
+	if h.wait(time.Minute) {
+		t.Fatal("a hang-up was reported with no stream to see it on")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("waited %v for a stream that was never opened", time.Since(start))
 	}
 }
