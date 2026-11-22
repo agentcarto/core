@@ -28,6 +28,14 @@ const (
 	// plugin normalizes it at parse time: ToolArg carries the path, Text the
 	// injected content.
 	EventAttachment EventKind = "attachment"
+	// EventQuestion is a question the agent put to the user through an ask tool,
+	// and EventAnswer is the user's response to it (a choice, free text, or a
+	// refusal). They are conversation, not tool traffic: the plugin normalizes
+	// both at parse time, Text carrying the readable body (common.QuestionText,
+	// common.AnswerText) rather than the tool's payload. Neither has a Prompt or
+	// Command, so neither opens a turn.
+	EventQuestion EventKind = "question"
+	EventAnswer   EventKind = "answer"
 )
 
 type Status string

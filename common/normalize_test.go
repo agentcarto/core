@@ -82,3 +82,117 @@ func TestToolArgFromJSONAcceptsBothSpellings(t *testing.T) {
 		}
 	}
 }
+
+func TestQuestionText(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []Question
+		want string
+	}{
+		{
+			"header, text and options",
+			[]Question{{Header: "Scope", Text: "Which chapters?", Options: []Option{
+				{Label: "All (Recommended)", Description: "Rewrite every chapter."},
+				{Label: "First only"},
+			}}},
+			"Scope: Which chapters?\n- All (Recommended): Rewrite every chapter.\n- First only",
+		},
+		{
+			"multi-select is marked on the question line",
+			[]Question{{Header: "Kinds", Text: "Which checks?", Multi: true, Options: []Option{{Label: "proofread"}}}},
+			"Kinds: Which checks? (multi-select)\n- proofread",
+		},
+		{
+			"a preview follows its option, indented, keeping its own layout",
+			[]Question{{Header: "Layout", Text: "Which one?", Options: []Option{
+				{Label: "Wide", Description: "Two columns.", Preview: "\n+---+---+\n| a | b |\n\n  note\n"},
+				{Label: "Narrow"},
+			}}},
+			"Layout: Which one?\n- Wide: Two columns.\n    +---+---+\n    | a | b |\n    \n      note\n- Narrow",
+		},
+		{
+			"no header leaves the question text alone",
+			[]Question{{Text: "  Anything else?  "}},
+			"Anything else?",
+		},
+		{
+			"questions are separated by a blank line",
+			[]Question{
+				{Header: "A", Text: "First?", Options: []Option{{Label: "yes"}}},
+				{Header: "B", Text: "Second?"},
+			},
+			"A: First?\n- yes\n\nB: Second?",
+		},
+		{
+			"a question or an option with nothing to show leaves no empty line behind",
+			[]Question{
+				{Multi: true},
+				{Header: "A", Text: "First?", Options: []Option{{}, {Label: "yes"}, {Preview: "orphan"}}},
+			},
+			"A: First?\n- yes",
+		},
+		{"none", nil, ""},
+	}
+	for _, c := range cases {
+		if got := QuestionText(c.in); got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAnswerText(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []Answer
+		want string
+	}{
+		{
+			"one line per question, several picks joined",
+			[]Answer{
+				{Header: "Scope", Values: []string{"All"}},
+				{Header: "Kinds", Values: []string{"proofread", "verify"}},
+			},
+			"Scope: All\nKinds: proofread, verify",
+		},
+		{
+			"a note sits under its answer, indented on every line",
+			[]Answer{
+				{Header: "Scope", Values: []string{"None of the above"}, Note: "skip the timeline\nand the index"},
+				{Header: "Kinds", Values: []string{"verify"}},
+			},
+			"Scope: None of the above\n  note: skip the timeline\n  and the index\nKinds: verify",
+		},
+		{
+			"an unanswered question says so",
+			[]Answer{{Header: "Scope"}, {Header: "Kinds", Values: []string{""}}},
+			"Scope: (no answer)\nKinds: (no answer)",
+		},
+		{
+			"blank picks are dropped, not joined",
+			[]Answer{{Header: "Kinds", Values: []string{"", " proofread ", " ", "verify"}}},
+			"Kinds: proofread, verify",
+		},
+		{
+			"no header leaves the value alone",
+			[]Answer{{Values: []string{"typed reply"}}},
+			"typed reply",
+		},
+		{"none", nil, ""},
+	}
+	for _, c := range cases {
+		if got := AnswerText(c.in); got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+}
+
+// An answer names its question by the header, and by the question itself when
+// the agent gave it none, so the answer line still reads on its own.
+func TestQuestionLabelFallsBackToText(t *testing.T) {
+	if got := (Question{Header: " Scope ", Text: "Which chapters?"}).Label(); got != "Scope" {
+		t.Errorf("Label = %q, want the header", got)
+	}
+	if got := (Question{Text: " Which chapters? "}).Label(); got != "Which chapters?" {
+		t.Errorf("Label = %q, want the question text", got)
+	}
+}
