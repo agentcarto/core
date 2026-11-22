@@ -255,3 +255,40 @@ func TestCompactSummaryIsBoundaryButNotHeadline(t *testing.T) {
 		t.Fatalf("%v headline=%q", turns, TurnHeadline(c, turns[1]))
 	}
 }
+
+// A question the agent asked and the answer the user gave are conversation. A
+// node holding nothing else must not make its turn, or a session made of such
+// turns, count as empty.
+func TestQuestionAndAnswerAreRealContent(t *testing.T) {
+	for _, k := range []domain.EventKind{domain.EventQuestion, domain.EventAnswer} {
+		n := domain.ConvNode{ID: "n", Events: []domain.Event{ev(k, "Scope: all")}}
+		if !NodeHasRealContent(n) {
+			t.Errorf("a node holding only a %s should be real content", k)
+		}
+	}
+}
+
+// A turn that opens without a prompt (the model carrying on after a
+// compaction) is labelled by the first thing the agent said, and a question is
+// something it said: it comes before a later message, and before the marker a
+// turn with no message would otherwise get.
+func TestTurnHeadlineFallsBackToQuestion(t *testing.T) {
+	c := domain.NewConversation([]domain.ConvNode{
+		{ID: "a", Events: []domain.Event{prompt("Q1")}},
+		{ID: "b", Parent: "a", Events: []domain.Event{{Kind: domain.EventUser, Text: "summary", RawType: domain.RawCompactSummary}}},
+		{ID: "c", Parent: "b", Events: []domain.Event{{Kind: domain.EventReasoning}, ev(domain.EventQuestion, "Scope: Which chapters?\n- All\n- First only")}},
+		{ID: "d", Parent: "c", Events: []domain.Event{ev(domain.EventAnswer, "Scope: All")}},
+		{ID: "e", Parent: "d", Events: []domain.Event{ev(domain.EventAssistant, "done")}},
+	})
+	turns := TurnsOfPath(c, c.ActivePath())
+	if len(turns) != 2 {
+		t.Fatalf("a question and its answer must not open a turn: %v", turns)
+	}
+	want := "Scope: Which chapters? - All - First only"
+	if got := TurnHeadline(c, turns[1]); got != want {
+		t.Fatalf("headline=%q, want %q", got, want)
+	}
+	if got := TurnHeadline(c, []string{"b", "c", "d"}); got != want {
+		t.Fatalf("headline of a turn with no message=%q, want %q", got, want)
+	}
+}

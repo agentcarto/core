@@ -95,8 +95,9 @@ func TurnIsCompact(c domain.Conversation, ids []string) bool {
 
 // NodeHasRealContent reports whether the node holds real content beyond a
 // summary: a genuine user prompt, a command other than /clear, an assistant
-// message, a tool call/result, or reasoning. Because NodeCommandName excludes
-// /clear, a node containing only /clear is also false here.
+// message, a question or its answer, a tool call/result, or reasoning. Because
+// NodeCommandName excludes /clear, a node containing only /clear is also false
+// here.
 func NodeHasRealContent(n domain.ConvNode) bool {
 	if NodeHasUtterance(n) {
 		return true
@@ -106,7 +107,8 @@ func NodeHasRealContent(n domain.ConvNode) bool {
 			continue
 		}
 		switch e.Kind {
-		case domain.EventAssistant, domain.EventToolCall, domain.EventToolResult, domain.EventReasoning:
+		case domain.EventAssistant, domain.EventQuestion, domain.EventAnswer,
+			domain.EventToolCall, domain.EventToolResult, domain.EventReasoning:
 			if e.Text != "" || e.ToolName != "" {
 				return true
 			}
@@ -116,8 +118,7 @@ func NodeHasRealContent(n domain.ConvNode) bool {
 }
 
 // TurnHasRealContent reports whether the turn holds real content beyond a
-// summary (a genuine prompt, an assistant message, a tool call/result, or
-// reasoning).
+// summary (see NodeHasRealContent).
 func TurnHasRealContent(c domain.Conversation, ids []string) bool {
 	for _, id := range ids {
 		if NodeHasRealContent(c.Nodes[id]) {
@@ -139,6 +140,9 @@ func NodesHaveRealContent(nodes []domain.ConvNode) bool {
 	return false
 }
 
+// TurnHeadline returns the one-line label of a turn: its prompt or command,
+// else the first thing the agent said (a message or a question), else a marker
+// for the first tool call, reasoning or tool result, else "(no content)".
 func TurnHeadline(c domain.Conversation, ids []string) string {
 	for _, id := range ids {
 		n := c.Nodes[id]
@@ -151,7 +155,7 @@ func TurnHeadline(c domain.Conversation, ids []string) string {
 	}
 	for _, id := range ids {
 		for _, e := range c.Nodes[id].Events {
-			if e.Kind == domain.EventAssistant {
+			if e.Kind == domain.EventAssistant || e.Kind == domain.EventQuestion {
 				if s := strings.TrimSpace(e.Text); s != "" {
 					return strings.Join(strings.Fields(s), " ")
 				}

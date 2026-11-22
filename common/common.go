@@ -177,7 +177,9 @@ func Linear(events []domain.Event) domain.Conversation {
 // LastMeaningful returns the kind of the last event that reflects conversation
 // state. Meta/system records, task notices (notifications, not state) and
 // attachments (context injected alongside a prompt) are skipped so
-// Session.LastKind stays within the kinds the status display knows.
+// Session.LastKind stays within the kinds the status display knows. A question
+// or an answer is conversation state and is returned as it is, though the
+// status display knows neither: Ongoing maps both to the activity they mean.
 func LastMeaningful(events []domain.Event) domain.EventKind {
 	for i := len(events) - 1; i >= 0; i-- {
 		switch events[i].Kind {
@@ -206,9 +208,15 @@ func Ongoing(last domain.EventKind) domain.EventKind {
 		// Reasoning done, or one text block written: the model is generating the
 		// next block (more text, or a tool call's input).
 		return domain.EventStream
-	case domain.EventToolResult:
+	case domain.EventToolResult, domain.EventAnswer:
 		// The result went back to the model, which is now working on its reply.
 		return domain.EventReasoning
+	case domain.EventQuestion:
+		// Asked and not yet answered: the agent is blocked on the user the way it
+		// is blocked on a running tool. Whether it is waiting right now is not
+		// something a log's tail can tell; that comes from the agent's runtime
+		// status.
+		return domain.EventToolCall
 	}
 	return last
 }

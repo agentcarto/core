@@ -170,6 +170,8 @@ func TestOngoing(t *testing.T) {
 		{domain.EventAssistant, domain.EventStream},
 		{domain.EventToolResult, domain.EventReasoning},
 		{domain.EventToolCall, domain.EventToolCall},
+		{domain.EventQuestion, domain.EventToolCall},
+		{domain.EventAnswer, domain.EventReasoning},
 		{domain.EventUser, domain.EventUser},
 		{domain.EventTurnComplete, domain.EventTurnComplete},
 		{"", ""},
@@ -182,6 +184,13 @@ func TestOngoing(t *testing.T) {
 	// The mapping must not turn a finished turn into a running one.
 	if got := ActiveStatus(Ongoing(domain.EventTurnComplete), true); got != domain.StatusReady {
 		t.Errorf("ActiveStatus after turn_complete = %v, want ready", got)
+	}
+	// A turn that stopped to ask, or that just got its answer, is still running:
+	// the status display knows neither kind, so both must map into one it does.
+	for _, k := range []domain.EventKind{domain.EventQuestion, domain.EventAnswer} {
+		if got := ActiveStatus(Ongoing(k), false); got != domain.StatusRunning {
+			t.Errorf("ActiveStatus after %s = %v, want running", k, got)
+		}
 	}
 }
 
